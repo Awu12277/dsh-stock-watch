@@ -1,0 +1,7 @@
+# dsh-stock-watch bundle patch.
+# Applied when the plugin is installed via `dsh plugin --profile web add dsh-stock-watch`.
+# Registers the node-side plugin entry; the client half is picked up
+# automatically from dsh.client in package.json by dsh-client-modules.
+- insert:
+    - id: dsh-stock-watch
+      name: dsh-stock-watch

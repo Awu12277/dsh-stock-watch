@@ -2,7 +2,21 @@
 
 A 股自选股实时行情**盯盘插件**：在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面的**右上角**显示一个可折叠弹窗，实时监控自选股行情、切换分组、查看分时与 K 线、设置买卖目标价。
 
-本插件是终端 CLI 项目 [stocking](https://github.com/Awu12277/stocking) 的 Web 伴生扩展，数据源与 CLI 同源（腾讯财经），配色沿用 A 股红涨绿跌惯例。
+数据源与原终端 CLI 项目 [stocking](https://github.com/Awu12277/stocking) 同源（腾讯财经），配色沿用 A 股红涨绿跌惯例。
+
+## 安装
+
+已发布到 npm，一条命令安装到你的 web profile：
+
+```bash
+dsh plugin --profile web add dsh-stock-watch
+```
+
+- 本地开发安装：`dsh plugin --profile web add file:D:\projects\github\dsh-stock-watch`
+- 或直接通过 git：`dsh plugin --profile web add github:Awu12277/dsh-stock-watch`
+- 安装后**重启 `dsh web` 生效**；卸载：`dsh plugin --profile web remove dsh-stock-watch`
+
+安装完成后，刷新页面，右上角出现「📈 自选股」药丸。
 
 ## 截图
 
@@ -28,48 +42,46 @@ A 股自选股实时行情**盯盘插件**：在 [DeepSeek Harness](https://gith
 - **目标价可编辑**：详情页点击「买入目标 / 卖出目标」进入输入框（数字 + 两位小数、留空清除、回车确认 / Esc 取消），即时重算触发标记并持久化
 - **暗色 / 浅色主题**：CSS 变量两套配色，默认暗色，☀️/🌙 一键切换（图表配色联动）
 
-## 快速开始
-
-这是一个 DSH **动态 Cordis 插件**（会话级、进程内运行）。在 DSH Web 会话中通过 `cordis_define` / `cordis_run` 工具加载：
-
-1. 复制 [`plugin/host.js`](plugin/host.js) 内容作为 `code.host`，[`plugin/client.js`](plugin/client.js) 内容作为 `code.client`
-2. `cordis_define` 创建插件（host + client），`cordis_run` 激活（首次需在运行卡片中授权）
-3. 刷新页面，右上角出现「📈 自选股」药丸
-
-> 注意：动态插件随进程/会话重启而失效，重新 `cordis_run` 即可；如需长期挂载可将其固化为 host 侧组合插件。
-
 ## 架构
 
 ```
 ┌─────────────── Web 浏览器 ───────────────┐
-│  Client（code.client）                    │
-│  · shell.overlay 槽位 → 右上角弹窗         │
+│  client.js（客户端插件模块）              │
+│  · shell.overlay 槽位 → 右上角弹窗        │
 │  · React + Lightweight Charts + SVG 降级  │
 │  · 配置存 localStorage（stocking.config.v1）│
-│          │ host.call (JSON RPC)           │
+│          │ fetch（同源 /dsh-stock-watch/*）│
 └──────────┼────────────────────────────────┘
            ▼
-┌─────────────── DSH Host（code.host）──────┐
-│  · stocking.config / quotes / kline /      │
-│    minute 四个包私有 RPC                    │
-│  · Node fetch 桥：subprocess 原生 spawn     │
-│    node 子进程，用 Node 全局 fetch 并发拉取  │
-│  · 腾讯财经接口解析 + 容错清洗 + 诊断信息     │
+┌─────────────── DSH Host（index.js）───────┐
+│  cordis 插件：webServer 注册 4 个路由      │
+│  · /config   读取 ~/.stocking/settings.json│
+│  · /quotes   实时行情（腾讯分钟接口）      │
+│  · /kline    日/周/月 K 线（fqkline）      │
+│  · /minute   分时详情（分钟点 + 昨收）     │
 └───────────────────────────────────────────┘
 ```
-
-### 为什么用 Node fetch 桥？
-
-- 部署组合默认**不挂载任何 web fetch provider**（防 SSRF 策略），`web.fetch` 必然不可用
-- shell 执行器沙箱**封锁出站网络**
-- 因此 Host 通过 `subprocess` 服务原生 spawn `node` 子进程直连腾讯接口 —— **与原项目 CLI 的 `fetch(url)` 完全同源**，不受沙箱限制
 
 ### 数据源
 
 - 行情快照 + 分时：`https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}&r=0.1`
 - 日/周/月 K 线：`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{count},qfq`
 
-解析逻辑（字段索引、K 线 `[date, open, close, high, low, volume]` 列序、昨收由 `现价/(1+涨跌幅%)` 反推）与 [stocking 的 market.ts](https://github.com/Awu12277/stocking/blob/main/src/market.ts) 保持一致。
+解析逻辑（字段索引、K 线 `[date, open, close, high, low, volume]` 列序、昨收由 `现价/(1+涨跌幅%)` 反推）与 [stocking 的 market.ts](https://github.com/Awu12277/stocking/blob/main/src/market.ts) 保持一致。Host 端使用 Node 原生 `fetch` 直连（部署即使未挂载 web fetch provider 或沙箱封锁网络，本插件也不受影响）。
+
+## 目录结构
+
+```
+dsh-stock-watch/
+├── index.js           # node 端 cordis 插件（webServer 路由）
+├── client.js          # 浏览器端客户端模块（__ModuleLoader__ + shell.overlay 槽位）
+├── cordis.patch.yml   # 组合补丁：插入 host 插件行（dsh.bundle.patch）
+├── package.json       # dsh.bundle + dsh.client 声明
+├── screenshots/       # 运行截图
+└── README.md
+```
+
+`dsh plugin add` 即 profile 目录内的 `pnpm add`：安装后按 package.json 的 `dsh.bundle.patch` 自动并入 profile 层栈，`dsh.client` 声明自动挂载浏览器端模块。
 
 ## 交互说明
 
