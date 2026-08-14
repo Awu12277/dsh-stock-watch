@@ -712,7 +712,8 @@ window.__ModuleLoader__.load({
         const onUp = () => {
           const d = dragRef.current;
           dragRef.current = null;
-          if (d && d.mode === "pill" && !d.moved) suppressClickRef.current = true;
+          // 只有真正拖动过（moved）才抑制随后的 click；普通点击不抑制 → 正常展开
+          if (d && d.mode === "pill" && d.moved) suppressClickRef.current = true;
         };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
@@ -735,6 +736,8 @@ window.__ModuleLoader__.load({
         if (e.button !== 0) return;
         const t = e.target;
         if (t && t.closest && t.closest("button, input, a")) return;
+        // 新的交互开始：清掉上一次拖出后可能残留的点击抑制标记
+        suppressClickRef.current = false;
         const base = pos || { x: window.innerWidth - PILL_W - 16, y: 14 };
         dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: base.x, baseY: base.y, moved: false, mode };
         e.preventDefault();
