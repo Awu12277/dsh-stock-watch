@@ -78,6 +78,11 @@ window.__ModuleLoader__.load({
 .sk-pill{cursor:grab}
 .sk-pill:active{cursor:grabbing}
 .sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
+.sk-ma-row{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.sk-ma-chip{display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--sk-border);color:var(--sk-dim);border-radius:999px;padding:1px 8px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
+.sk-ma-chip:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
+.sk-ma-chip-off{opacity:.35;text-decoration:line-through}
+.sk-ma-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 `;
     document.head.appendChild(styleTag);
 
@@ -95,6 +100,12 @@ window.__ModuleLoader__.load({
     const POS_KEY = "stocking.pos.v1";
     const PILL_W = 132;
     const PANEL_W = 400;
+    const MA_PERIODS = [5, 10, 20, 60];
+    const MA_COLOR = { 10: "#ffcc00", 20: "#ff5cd2", 60: "#00ff41" };
+    const MA_STORAGE_KEY = "stocking.ma.v1";
+    function maColor(p, dark) {
+      return p === 5 ? (dark ? "#e5e7eb" : "#374151") : MA_COLOR[p] || "#ffcc00";
+    }
 
     // ------------------------------------------------------------------ 工具
     async function api(path, params) {
@@ -332,6 +343,7 @@ window.__ModuleLoader__.load({
       const height = props.height || 240;
       const fitKey = props.fitKey || "";
       const dark = props.dark;
+      const maVisible = props.maVisible || {};
       const boxRef = useRef(null);
       const chartRef = useRef(null);
       const seriesRef = useRef(null);
@@ -372,10 +384,10 @@ window.__ModuleLoader__.load({
         });
         // MA 均线（A 股配色：MA5 白、MA10 黄、MA20 紫、MA60 绿；MA5 随主题取可读灰色）
         const MA_CONFIG = [
-          { period: 5, color: dark ? "#e5e7eb" : "#374151" },
-          { period: 10, color: "#ffcc00" },
-          { period: 20, color: "#ff5cd2" },
-          { period: 60, color: "#00ff41" },
+          { period: 5, color: maColor(5, dark) },
+          { period: 10, color: maColor(10, dark) },
+          { period: 20, color: maColor(20, dark) },
+          { period: 60, color: maColor(60, dark) },
         ];
         maRefs.current = MA_CONFIG.map((cfg) => {
           const s = chart.addLineSeries({
@@ -384,6 +396,7 @@ window.__ModuleLoader__.load({
             priceLineVisible: false,
             lastValueVisible: false,
             crosshairMarkerVisible: false,
+            visible: !maVisible || maVisible[cfg.period] !== false,
             priceFormat: { type: "price", precision: 2, minMove: 0.01 },
           });
           return { period: cfg.period, series: s };
@@ -399,6 +412,12 @@ window.__ModuleLoader__.load({
           maRefs.current = [];
         };
       }, [lwc, height, dark]);
+      // MA 显隐切换：applyOptions({ visible })，无需重建图表
+      useEffect(() => {
+        for (const ma of maRefs.current) {
+          ma.series.applyOptions({ visible: !maVisible || maVisible[ma.period] !== false });
+        }
+      }, [maVisible]);
       useEffect(() => {
         const series = seriesRef.current;
         const vol = volRef.current;
@@ -555,6 +574,20 @@ window.__ModuleLoader__.load({
           }
         } catch { /* ignore */ }
         return null;
+      });
+      // MA 均线显隐配置（localStorage 持久化）
+      const [maVisible, setMaVisible] = useState(() => {
+        const def = { 5: true, 10: true, 20: true, 60: true };
+        try {
+          const raw = window.localStorage.getItem(MA_STORAGE_KEY);
+          if (raw) {
+            const p = JSON.parse(raw);
+            for (const k of MA_PERIODS) {
+              if (typeof p[k] === "boolean") def[k] = p[k];
+            }
+          }
+        } catch { /* ignore */ }
+        return def;
       });
 
       // 配置：localStorage 优先，首次从 Host /config 迁移 settings.json，兜底默认分组
@@ -768,6 +801,13 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }, [pos]);
 
+      // MA 显隐配置 → 持久化
+      useEffect(() => {
+        try {
+          window.localStorage.setItem(MA_STORAGE_KEY, JSON.stringify(maVisible));
+        } catch { /* ignore */ }
+      }, [maVisible]);
+
       // 按住胶囊/面板头部拖动（按钮/输入框上不触发）
       const startDrag = useCallback((e, mode) => {
         if (e.button !== 0) return;
@@ -842,7 +882,7 @@ window.__ModuleLoader__.load({
               ? react.createElement(MinuteChart, { lwc, points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, height: 240, dark, fitKey: view.code + ":minute" })
               : react.createElement(SvgMinute, { points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, width: 380, height: 228, dark }))
           : (lwc
-              ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period })
+              ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period, maVisible })
               : react.createElement(SvgCandles, { candles, width: 380, height: 228 }));
         const footText = isMinute
           ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : (m && Array.isArray(m.points) ? m.points.length + " 个分时点" : "")))
@@ -894,6 +934,18 @@ window.__ModuleLoader__.load({
                   className: "sk-period" + (p === period ? " sk-period-active" : ""),
                   onClick: () => setPeriod(p),
                 }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K")))),
+            !isMinute && react.createElement("div", { className: "sk-ma-row" },
+              MA_PERIODS.map((p) => {
+                const on = !!maVisible[p];
+                return react.createElement("button", {
+                  key: p,
+                  className: "sk-ma-chip" + (on ? "" : " sk-ma-chip-off"),
+                  title: (on ? "隐藏" : "显示") + " MA" + p,
+                  onClick: () => setMaVisible((v) => ({ ...v, [p]: !v[p] })),
+                },
+                  react.createElement("span", { className: "sk-ma-dot", style: { background: maColor(p, dark) } }),
+                  "MA" + p);
+              })),
           chartEl,
           react.createElement("div", { className: "sk-detail-foot" },
             react.createElement("span", null, footText),
