@@ -78,9 +78,6 @@ window.__ModuleLoader__.load({
 .sk-pill{cursor:grab}
 .sk-pill:active{cursor:grabbing}
 .sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
-.sk-extreme{position:absolute;pointer-events:none;z-index:5;font:600 10px ui-monospace,SFMono-Regular,Consolas,monospace;padding:0 3px;border-radius:3px;background:var(--sk-panel-bg);white-space:nowrap}
-.sk-extreme-max{color:#ff1493}
-.sk-extreme-min{color:#00ff41}
 `;
     document.head.appendChild(styleTag);
 
@@ -233,18 +230,6 @@ window.__ModuleLoader__.load({
         els.push(react.createElement("line", { key: "w" + i, x1: x, y1: yOf(c.high), x2: x, y2: yOf(c.low), stroke: color, strokeWidth: 1 }));
         els.push(react.createElement("rect", { key: "b" + i, x: x - bodyW / 2, y: top, width: bodyW, height: bodyH, fill: color }));
       }
-      // 最高/最低点值标签
-      let maxH = -Infinity;
-      let minL = Infinity;
-      let maxI = 0;
-      let minI = 0;
-      candles.forEach((c, i) => {
-        if (c.high > maxH) { maxH = c.high; maxI = i; }
-        if (c.low < minL) { minL = c.low; minI = i; }
-      });
-      const cx = (i) => pad + step * i + step / 2;
-      els.push(react.createElement("text", { key: "hmax", x: cx(maxI), y: yOf(maxH) - 4, fill: UP, fontSize: 9, textAnchor: "middle" }, formatPrice(maxH)));
-      els.push(react.createElement("text", { key: "lmin", x: cx(minI), y: yOf(minL) + 11, fill: DOWN, fontSize: 9, textAnchor: "middle" }, formatPrice(minL)));
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
@@ -323,17 +308,6 @@ window.__ModuleLoader__.load({
       els.push(react.createElement("text", { key: "t0", x: 4, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[0].t)));
       els.push(react.createElement("text", { key: "t1", x: xOf(midIdx) - 14, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[midIdx].t)));
       els.push(react.createElement("text", { key: "t2", x: width - 34, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[points.length - 1].t)));
-      // 最高/最低价值标签
-      let maxP = -Infinity;
-      let minP = Infinity;
-      let maxI = 0;
-      let minI = 0;
-      points.forEach((pt, i) => {
-        if (pt.p > maxP) { maxP = pt.p; maxI = i; }
-        if (pt.p < minP) { minP = pt.p; minI = i; }
-      });
-      els.push(react.createElement("text", { key: "hmax", x: xOf(maxI), y: yOf(maxP) - 4, fill: UP, fontSize: 9, textAnchor: "middle" }, formatPrice(maxP)));
-      els.push(react.createElement("text", { key: "lmin", x: xOf(minI), y: yOf(minP) + 11, fill: DOWN, fontSize: 9, textAnchor: "middle" }, formatPrice(minP)));
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
@@ -351,59 +325,6 @@ window.__ModuleLoader__.load({
       return data;
     }
 
-    /**
-     * 可视范围最高/最低点数字标签（不画图标、不画水平线）。
-     * items 支持两种形状：K线 {time, high, low} 或分时 {t, p}。
-     * 随平移/缩放由调用方在 visibleLogicalRangeChange 时重新 update。
-     */
-    function createExtremeLabels(container) {
-      const mk = (cls) => {
-        const el = document.createElement("div");
-        el.className = cls;
-        container.appendChild(el);
-        return el;
-      };
-      const maxEl = mk("sk-extreme sk-extreme-max");
-      const minEl = mk("sk-extreme sk-extreme-min");
-      const hide = () => { maxEl.style.display = "none"; minEl.style.display = "none"; };
-      function update(chart, series, items) {
-        if (!chart || !series || !items || items.length === 0) { hide(); return; }
-        const vr = chart.timeScale().getVisibleLogicalRange();
-        if (!vr) { hide(); return; }
-        const from = Math.max(0, Math.floor(vr.from));
-        const to = Math.min(items.length - 1, Math.ceil(vr.to));
-        if (from > to) { hide(); return; }
-        let maxV = -Infinity;
-        let minV = Infinity;
-        let maxTime = null;
-        let minTime = null;
-        for (let i = from; i <= to; i++) {
-          const it = items[i];
-          const hi = it.high !== undefined ? it.high : it.p;
-          const lo = it.low !== undefined ? it.low : it.p;
-          const t = it.time !== undefined ? it.time : it.t;
-          if (hi > maxV) { maxV = hi; maxTime = t; }
-          if (lo < minV) { minV = lo; minTime = t; }
-        }
-        const place = (el, time, value, below) => {
-          const x = chart.timeScale().timeToCoordinate(time);
-          const y = series.priceToCoordinate(value);
-          if (x === null || y === null) { el.style.display = "none"; return; }
-          el.style.display = "block";
-          el.style.left = Math.round(x) + "px";
-          el.style.top = Math.round(below ? y + 5 : y - 5) + "px";
-          el.style.transform = below ? "translate(-50%, 0)" : "translate(-50%, -100%)";
-          el.textContent = formatPrice(value);
-        };
-        place(maxEl, maxTime, maxV, false);
-        place(minEl, minTime, minV, true);
-      }
-      return {
-        update,
-        dispose: () => { maxEl.remove(); minEl.remove(); },
-      };
-    }
-
     // -------------------------------------------------------------- Lightweight Charts K线
     function LwcChart(props) {
       const lwc = props.lwc;
@@ -416,10 +337,7 @@ window.__ModuleLoader__.load({
       const seriesRef = useRef(null);
       const volRef = useRef(null);
       const maRefs = useRef([]);
-      const candlesRef = useRef(candles);
-      const extremesRef = useRef(null);
       const lastFitKey = useRef(null);
-      candlesRef.current = candles;
       useEffect(() => {
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
@@ -473,20 +391,12 @@ window.__ModuleLoader__.load({
         chartRef.current = chart;
         seriesRef.current = series;
         volRef.current = vol;
-        if (!extremesRef.current && boxRef.current) {
-          extremesRef.current = createExtremeLabels(boxRef.current);
-        }
-        const unsub = chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-          if (extremesRef.current) extremesRef.current.update(chartRef.current, seriesRef.current, candlesRef.current);
-        });
         return () => {
-          unsub();
           chart.remove();
           chartRef.current = null;
           seriesRef.current = null;
           volRef.current = null;
           maRefs.current = [];
-          if (extremesRef.current) { extremesRef.current.dispose(); extremesRef.current = null; }
         };
       }, [lwc, height, dark]);
       useEffect(() => {
@@ -501,10 +411,6 @@ window.__ModuleLoader__.load({
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
-        }
-        // 可视范围最高/最低点数字标签（不画图标/水平线）
-        if (extremesRef.current) {
-          extremesRef.current.update(chartRef.current, seriesRef.current, candlesRef.current);
         }
       }, [candles, lwc, fitKey]);
       return react.createElement("div", { ref: boxRef, className: "sk-chart-box", style: { width: "100%", height } });
@@ -523,10 +429,7 @@ window.__ModuleLoader__.load({
       const lineRef = useRef(null);
       const avgRef = useRef(null);
       const baselineRef = useRef(null);
-      const pointsRef = useRef(points);
-      const extremesRef = useRef(null);
       const lastFitKey = useRef(null);
-      pointsRef.current = points;
       useEffect(() => {
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
@@ -563,20 +466,12 @@ window.__ModuleLoader__.load({
         chartRef.current = chart;
         lineRef.current = line;
         avgRef.current = avg;
-        if (!extremesRef.current && boxRef.current) {
-          extremesRef.current = createExtremeLabels(boxRef.current);
-        }
-        const unsub = chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-          if (extremesRef.current) extremesRef.current.update(chartRef.current, lineRef.current, pointsRef.current);
-        });
         return () => {
-          unsub();
           chart.remove();
           chartRef.current = null;
           lineRef.current = null;
           avgRef.current = null;
           baselineRef.current = null;
-          if (extremesRef.current) { extremesRef.current.dispose(); extremesRef.current = null; }
         };
       }, [lwc, height, dark]);
       useEffect(() => {
@@ -604,10 +499,6 @@ window.__ModuleLoader__.load({
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
-        }
-        // 可视范围最高/最低价数字标签（不画图标/水平线）
-        if (extremesRef.current) {
-          extremesRef.current.update(chartRef.current, lineRef.current, pointsRef.current);
         }
       }, [points, prevClose, lwc, fitKey]);
       useEffect(() => {
