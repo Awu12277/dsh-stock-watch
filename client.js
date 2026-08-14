@@ -75,6 +75,9 @@ window.__ModuleLoader__.load({
 .sk-candles{display:block;margin:0 auto}
 .sk-chart-empty{padding:30px 10px;text-align:center;color:var(--sk-muted)}
 .sk-detail-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft);color:var(--sk-muted);font-size:11px}
+.sk-pill{cursor:grab}
+.sk-pill:active{cursor:grabbing}
+.sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
 `;
     document.head.appendChild(styleTag);
 
@@ -89,6 +92,9 @@ window.__ModuleLoader__.load({
       { name: "分组1", symbols: [{ code: "sh000001" }, { code: "sz399300" }, { code: "sh601899" }] },
       { name: "分组2", symbols: [] },
     ];
+    const POS_KEY = "stocking.pos.v1";
+    const PILL_W = 132;
+    const PANEL_W = 400;
 
     // ------------------------------------------------------------------ 工具
     async function api(path, params) {
@@ -459,6 +465,20 @@ window.__ModuleLoader__.load({
       const [flashMsg, setFlashMsg] = useState(null);
       const dataRef = useRef(null);
       const flashTimerRef = useRef(null);
+      const dragRef = useRef(null);
+      const suppressClickRef = useRef(false);
+      const pillRef = useRef(null);
+      const pillWidthRef = useRef(PILL_W);
+      const [pos, setPos] = useState(() => {
+        try {
+          const raw = window.localStorage.getItem(POS_KEY);
+          if (raw) {
+            const p = JSON.parse(raw);
+            if (typeof p.x === "number" && typeof p.y === "number") return p;
+          }
+        } catch { /* ignore */ }
+        return null;
+      });
 
       // 配置：localStorage 优先，首次从 Host /config 迁移 settings.json，兜底默认分组
       useEffect(() => {
@@ -639,6 +659,58 @@ window.__ModuleLoader__.load({
         }
       }, [data]);
 
+      // —— 拖拽：窗口级 mousemove/mouseup ——
+      useEffect(() => {
+        const onMove = (e) => {
+          const d = dragRef.current;
+          if (!d) return;
+          const dx = e.clientX - d.startX;
+          const dy = e.clientY - d.startY;
+          if (!d.moved && Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
+          if (d.moved) setPos({ x: d.baseX + dx, y: d.baseY + dy });
+        };
+        const onUp = () => {
+          const d = dragRef.current;
+          dragRef.current = null;
+          if (d && d.mode === "pill" && !d.moved) suppressClickRef.current = true;
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+      }, []);
+
+      // 位置变化 → 持久化
+      useEffect(() => {
+        if (!pos) return;
+        try {
+          window.localStorage.setItem(POS_KEY, JSON.stringify(pos));
+        } catch { /* ignore */ }
+      }, [pos]);
+
+      // 按住胶囊/面板头部拖动（按钮/输入框上不触发）
+      const startDrag = useCallback((e, mode) => {
+        if (e.button !== 0) return;
+        const t = e.target;
+        if (t && t.closest && t.closest("button, input, a")) return;
+        const base = pos || { x: window.innerWidth - PILL_W - 16, y: 14 };
+        dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: base.x, baseY: base.y, moved: false, mode };
+        e.preventDefault();
+      }, [pos]);
+
+      // 面板位置：右边缘与胶囊右边缘对齐（跟随胶囊）
+      const panelStyle = (() => {
+        if (!pos) return undefined;
+        const pw = pillWidthRef.current || PILL_W;
+        return {
+          left: Math.max(8, Math.min(pos.x + pw - PANEL_W, window.innerWidth - PANEL_W - 8)),
+          top: Math.max(8, Math.min(pos.y, window.innerHeight - 320)),
+          right: "auto",
+        };
+      })();
+
       dataRef.current = data;
 
       const groups = (data && Array.isArray(data.groups)) ? data.groups : [];
@@ -651,14 +723,25 @@ window.__ModuleLoader__.load({
         title: theme === "dark" ? "切换到浅色主题" : "切换到暗色主题",
       }, theme === "dark" ? "☀️" : "🌙");
 
-      // —— 折叠态：右上角小药丸 ——
+      // —— 折叠态：可拖动小药丸 ——
       if (!expanded) {
         const summary = (data && rows.length > 0)
           ? react.createElement("span", { className: "sk-pill-summary" },
               react.createElement("span", { style: { color: UP } }, upCount + "↑"),
               react.createElement("span", { style: { color: DOWN } }, downCount + "↓"))
           : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…");
-        return react.createElement("div", { className: "sk-pill sk-theme-" + theme, onClick: () => setExpanded(true), title: "展开自选股盯盘" },
+        if (pillRef.current) pillWidthRef.current = pillRef.current.offsetWidth || PILL_W;
+        return react.createElement("div", {
+          className: "sk-pill sk-theme-" + theme,
+          ref: pillRef,
+          style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
+          onMouseDown: (e) => startDrag(e, "pill"),
+          onClick: () => {
+            if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+            setExpanded(true);
+          },
+          title: "展开自选股盯盘（按住可拖动）",
+        },
           react.createElement("span", { className: "sk-pill-title" }, "📈 自选股"),
           summary);
       }
@@ -714,8 +797,8 @@ window.__ModuleLoader__.load({
             onClick: () => setTargetEdit({ type, value: value !== undefined ? String(value) : "" }),
           }, label + " " + (value !== undefined ? formatPrice(value) : "-"));
         };
-        return react.createElement("div", { className: "sk-panel sk-theme-" + theme },
-          react.createElement("div", { className: "sk-detail-header" },
+        return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle },
+          react.createElement("div", { className: "sk-detail-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
             react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
             react.createElement("div", { className: "sk-detail-info" },
               react.createElement("span", { className: "sk-detail-name" }, row ? row.name : view.code),
@@ -739,7 +822,7 @@ window.__ModuleLoader__.load({
       }
 
       // —— 列表视图 ——
-      const header = react.createElement("div", { className: "sk-header" },
+      const header = react.createElement("div", { className: "sk-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
         react.createElement("span", { className: "sk-title" }, "📈 自选股盯盘"),
         react.createElement("span", { className: "sk-tabs" },
           groups.map((g, i) =>
@@ -783,7 +866,7 @@ window.__ModuleLoader__.load({
             ? "配置：localStorage"
             : (data && data.config && data.config.source === "file" ? "~/.stocking/settings.json" : "默认分组")));
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme }, header, body, footer);
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, footer);
     }
 
     // ------------------------------------------------------------------ 插件主体
