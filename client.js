@@ -230,6 +230,18 @@ window.__ModuleLoader__.load({
         els.push(react.createElement("line", { key: "w" + i, x1: x, y1: yOf(c.high), x2: x, y2: yOf(c.low), stroke: color, strokeWidth: 1 }));
         els.push(react.createElement("rect", { key: "b" + i, x: x - bodyW / 2, y: top, width: bodyW, height: bodyH, fill: color }));
       }
+      // 最高/最低点值标签
+      let maxH = -Infinity;
+      let minL = Infinity;
+      let maxI = 0;
+      let minI = 0;
+      candles.forEach((c, i) => {
+        if (c.high > maxH) { maxH = c.high; maxI = i; }
+        if (c.low < minL) { minL = c.low; minI = i; }
+      });
+      const cx = (i) => pad + step * i + step / 2;
+      els.push(react.createElement("text", { key: "hmax", x: cx(maxI), y: yOf(maxH) - 4, fill: UP, fontSize: 9, textAnchor: "middle" }, "高 " + formatPrice(maxH)));
+      els.push(react.createElement("text", { key: "lmin", x: cx(minI), y: yOf(minL) + 11, fill: DOWN, fontSize: 9, textAnchor: "middle" }, "低 " + formatPrice(minL)));
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
@@ -308,6 +320,17 @@ window.__ModuleLoader__.load({
       els.push(react.createElement("text", { key: "t0", x: 4, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[0].t)));
       els.push(react.createElement("text", { key: "t1", x: xOf(midIdx) - 14, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[midIdx].t)));
       els.push(react.createElement("text", { key: "t2", x: width - 34, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[points.length - 1].t)));
+      // 最高/最低价值标签
+      let maxP = -Infinity;
+      let minP = Infinity;
+      let maxI = 0;
+      let minI = 0;
+      points.forEach((pt, i) => {
+        if (pt.p > maxP) { maxP = pt.p; maxI = i; }
+        if (pt.p < minP) { minP = pt.p; minI = i; }
+      });
+      els.push(react.createElement("text", { key: "hmax", x: xOf(maxI), y: yOf(maxP) - 4, fill: UP, fontSize: 9, textAnchor: "middle" }, "高 " + formatPrice(maxP)));
+      els.push(react.createElement("text", { key: "lmin", x: xOf(minI), y: yOf(minP) + 11, fill: DOWN, fontSize: 9, textAnchor: "middle" }, "低 " + formatPrice(minP)));
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
@@ -408,6 +431,21 @@ window.__ModuleLoader__.load({
         for (const ma of maRefs.current || []) {
           ma.series.setData(computeMa(candles, ma.period));
         }
+        // 标记最高/最低点（箭头 + 值标签，不画水平线）
+        if (candles.length > 0) {
+          let maxH = -Infinity;
+          let minL = Infinity;
+          let maxTime = null;
+          let minTime = null;
+          for (const c of candles) {
+            if (c.high > maxH) { maxH = c.high; maxTime = c.time; }
+            if (c.low < minL) { minL = c.low; minTime = c.time; }
+          }
+          const markers = [];
+          if (maxTime !== null) markers.push({ time: maxTime, position: "aboveBar", color: UP, shape: "arrowDown", size: 1, text: "高 " + formatPrice(maxH) });
+          if (minTime !== null) markers.push({ time: minTime, position: "belowBar", color: DOWN, shape: "arrowUp", size: 1, text: "低 " + formatPrice(minL) });
+          series.setMarkers(markers);
+        }
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
@@ -496,6 +534,19 @@ window.__ModuleLoader__.load({
           ? lastP >= prevClose
           : lastP >= points[0].p;
         line.applyOptions({ color: up ? UP : DOWN });
+        // 标记最高/最低价（箭头 + 值标签，不画水平线）
+        let maxP = -Infinity;
+        let minP = Infinity;
+        let maxT = null;
+        let minT = null;
+        for (const pt of points) {
+          if (pt.p > maxP) { maxP = pt.p; maxT = pt.t; }
+          if (pt.p < minP) { minP = pt.p; minT = pt.t; }
+        }
+        const markers = [];
+        if (maxT !== null) markers.push({ time: maxT, position: "aboveBar", color: UP, shape: "arrowDown", size: 1, text: "高 " + formatPrice(maxP) });
+        if (minT !== null) markers.push({ time: minT, position: "belowBar", color: DOWN, shape: "arrowUp", size: 1, text: "低 " + formatPrice(minP) });
+        line.setMarkers(markers);
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
