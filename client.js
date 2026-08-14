@@ -233,6 +233,30 @@ window.__ModuleLoader__.load({
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
+    // ------------------------------------------------------ 分时时间轴：按 A 股交易时段（北京时间 UTC+8）标注
+    const SHANGHAI_OFFSET = 8 * 3600;
+    function beijingOf(ts) {
+      return new Date((Number(ts) + SHANGHAI_OFFSET) * 1000);
+    }
+    function fmtBeijingClock(ts) {
+      const d = beijingOf(ts);
+      return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+    }
+    // lightweight-charts v4 tick/time formatter：无论浏览器时区，一律按北京时间显示
+    function beijingTickFormatter(time, tickMarkType) {
+      let ts;
+      if (typeof time === "object" && time !== null) {
+        ts = Date.UTC(time.year, (time.month || 1) - 1, time.day || 1) / 1000;
+      } else {
+        ts = Number(time);
+      }
+      const d = beijingOf(ts);
+      const isTime = tickMarkType >= 3 || tickMarkType === "Time" || tickMarkType === "TimeWithSeconds";
+      const clock = fmtBeijingClock(ts);
+      if (isTime) return clock;
+      return String(d.getUTCMonth() + 1) + "-" + String(d.getUTCDate()) + " " + clock;
+    }
+
     // -------------------------------------------------------------- 分时 SVG 兜底
     function SvgMinute(props) {
       const points = props.points || [];
@@ -272,6 +296,18 @@ window.__ModuleLoader__.load({
         const y = yOf(prevClose);
         els.push(react.createElement("line", { key: "base", x1: pad, y1: y, x2: width - pad, y2: y, stroke: dark ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.4)", strokeWidth: 1, strokeDasharray: "4 3" }));
       }
+      // 交易时段标签（北京时间）：开盘 09:30 · 午后开盘 13:00 · 收盘 15:00
+      const labelFill = dark ? "rgba(255,255,255,0.5)" : "rgba(15,23,42,0.5)";
+      const secOfDay = (ts) => ((ts % 86400) + 86400) % 86400;
+      let gapIdx = -1;
+      for (let i = 1; i < points.length; i++) {
+        const step = secOfDay(points[i].t) - secOfDay(points[i - 1].t);
+        if (step > 1800) { gapIdx = i; break; }
+      }
+      const midIdx = gapIdx > 0 ? gapIdx : Math.floor(points.length / 2);
+      els.push(react.createElement("text", { key: "t0", x: 4, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[0].t)));
+      els.push(react.createElement("text", { key: "t1", x: xOf(midIdx) - 14, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[midIdx].t)));
+      els.push(react.createElement("text", { key: "t2", x: width - 34, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[points.length - 1].t)));
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
@@ -371,6 +407,10 @@ window.__ModuleLoader__.load({
             mode: 0,
             vertLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
             horzLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
+          },
+          localization: {
+            timeFormatter: (time) => beijingTickFormatter(time, 3),
+            tickMarkFormatter: (time, tickMarkType) => beijingTickFormatter(time, tickMarkType),
           },
         });
         const line = chart.addLineSeries({
