@@ -39,7 +39,7 @@ dsh plugin --profile web add dsh-stock-watch
 - **多分组自选股**：分组 tab 切换（分组名 + 股票数），配置存浏览器 `localStorage`（首次自动从 `~/.stocking/settings.json` 迁移）
 - **实时行情列表**：名称 / 代码、现价、涨跌幅、分时迷你折线、目标价触发标记（买入 / 卖出 / 等待 / -），每 10s 自动刷新（带倒计时）
 - **分时视图**：全天分钟价格线（红涨绿跌）+ 黄色均价线（VWAP）+ 昨收虚线基准，时间轴按 **A 股交易时段（北京时间 09:30–11:30 / 13:00–15:00）** 标注，午间休市留白
-- **K 线视图**：日 K / 周 K / 月 K 前复权蜡烛图 + 成交量柱，基于 [TradingView Lightweight Charts](https://tradingview.github.io/lightweight-charts/docs)（CDN 懒加载，失败自动降级为自绘 SVG）
+- **K 线视图**：日 K / 周 K / 月 K 前复权蜡烛图 + 成交量柱 + **MA 均线（MA5 白 / MA10 黄 / MA20 紫 / MA60 绿，A 股配色）**，基于 [TradingView Lightweight Charts](https://tradingview.github.io/lightweight-charts/docs)（CDN 懒加载，失败自动降级为自绘 SVG）
 - **目标价可编辑**：详情页点击「买入目标 / 卖出目标」进入输入框（数字 + 两位小数、留空清除、回车确认 / Esc 取消），即时重算触发标记并持久化
 - **暗色 / 浅色主题**：CSS 变量两套配色，默认暗色，☀️/🌙 一键切换（图表配色联动）
 

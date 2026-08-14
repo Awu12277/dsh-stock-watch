@@ -311,6 +311,20 @@ window.__ModuleLoader__.load({
       return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
     }
 
+    // 简单移动平均：按收盘价计算，返回 [{time, value}]（前 period-1 根无值，线从有值处开始）
+    function computeMa(candles, period) {
+      const data = [];
+      let sum = 0;
+      for (let i = 0; i < candles.length; i++) {
+        sum += candles[i].close;
+        if (i >= period) sum -= candles[i - period].close;
+        if (i >= period - 1) {
+          data.push({ time: candles[i].time, value: sum / period });
+        }
+      }
+      return data;
+    }
+
     // -------------------------------------------------------------- Lightweight Charts K线
     function LwcChart(props) {
       const lwc = props.lwc;
@@ -322,6 +336,7 @@ window.__ModuleLoader__.load({
       const chartRef = useRef(null);
       const seriesRef = useRef(null);
       const volRef = useRef(null);
+      const maRefs = useRef([]);
       const lastFitKey = useRef(null);
       useEffect(() => {
         if (!lwc || !boxRef.current) return undefined;
@@ -355,6 +370,24 @@ window.__ModuleLoader__.load({
           priceLineVisible: false,
           scaleMargins: { top: 0.82, bottom: 0 },
         });
+        // MA 均线（A 股配色：MA5 白、MA10 黄、MA20 紫、MA60 绿；MA5 随主题取可读灰色）
+        const MA_CONFIG = [
+          { period: 5, color: dark ? "#e5e7eb" : "#374151" },
+          { period: 10, color: "#ffcc00" },
+          { period: 20, color: "#ff5cd2" },
+          { period: 60, color: "#00ff41" },
+        ];
+        maRefs.current = MA_CONFIG.map((cfg) => {
+          const s = chart.addLineSeries({
+            color: cfg.color,
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+            priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+          });
+          return { period: cfg.period, series: s };
+        });
         chartRef.current = chart;
         seriesRef.current = series;
         volRef.current = vol;
@@ -363,6 +396,7 @@ window.__ModuleLoader__.load({
           chartRef.current = null;
           seriesRef.current = null;
           volRef.current = null;
+          maRefs.current = [];
         };
       }, [lwc, height, dark]);
       useEffect(() => {
@@ -371,6 +405,9 @@ window.__ModuleLoader__.load({
         if (!series || !vol) return;
         series.setData(candles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
         vol.setData(candles.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? "rgba(255,20,147,0.35)" : "rgba(0,255,65,0.35)" })));
+        for (const ma of maRefs.current || []) {
+          ma.series.setData(computeMa(candles, ma.period));
+        }
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
