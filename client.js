@@ -83,6 +83,22 @@ window.__ModuleLoader__.load({
 .sk-ma-chip:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
 .sk-ma-chip-off{opacity:.35;text-decoration:line-through}
 .sk-ma-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--sk-panel-bg);display:flex;flex-direction:column;padding:10px}
+.sk-add-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.sk-add-title{font-weight:700;color:var(--sk-cyan)}
+.sk-add-menu{display:flex;flex-direction:column;gap:6px}
+.sk-add-menu-item{background:var(--sk-hover);border:1px solid var(--sk-border);color:var(--sk-text);border-radius:8px;padding:8px 10px;cursor:pointer;font:inherit;text-align:left}
+.sk-add-menu-item:hover{border-color:var(--sk-cyan-border)}
+.sk-add-stock{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
+.sk-add-input{background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:5px 8px;font:inherit;outline:none}
+.sk-add-results{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.sk-add-result{display:flex;gap:10px;align-items:center;background:transparent;border:none;color:var(--sk-text);border-radius:6px;padding:4px 8px;cursor:pointer;font:inherit;text-align:left}
+.sk-add-result:hover{background:var(--sk-hover)}
+.sk-add-result-code{color:var(--sk-muted);font-size:11px;width:52px}
+.sk-add-result-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sk-add-empty{color:var(--sk-muted);text-align:center;padding:14px 0;font-size:11px}
+.sk-add-group{display:flex;flex-direction:column;gap:8px}
+.sk-add-confirm{background:var(--sk-cyan-soft);border:1px solid var(--sk-cyan-border);color:var(--sk-cyan);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;font-weight:600}
 `;
     document.head.appendChild(styleTag);
 
@@ -589,6 +605,11 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
         return def;
       });
+      // 添加面板状态（menu / stock / group）
+      const [showAdd, setShowAdd] = useState(null);
+      const [stockQuery, setStockQuery] = useState("");
+      const [stockResults, setStockResults] = useState(null);
+      const [groupName, setGroupName] = useState("");
 
       // 配置：localStorage 优先，首次从 Host /config 迁移 settings.json，兜底默认分组
       useEffect(() => {
@@ -808,6 +829,45 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }, [maVisible]);
 
+      // 股票搜索（防抖 200ms，调 Host /stocks 全 A 股池）
+      useEffect(() => {
+        if (showAdd !== "stock") return undefined;
+        const q = stockQuery.trim();
+        if (!q) { setStockResults(null); return undefined; }
+        const timer = setTimeout(async () => {
+          try {
+            const res = await api("/stocks", { q });
+            setStockResults(res && Array.isArray(res.rows) ? res.rows : []);
+          } catch {
+            setStockResults([]);
+          }
+        }, 200);
+        return () => clearTimeout(timer);
+      }, [showAdd, stockQuery]);
+
+      // 添加股票到当前分组（跨组去重）
+      const addStock = useCallback((code, name) => {
+        const exists = (groupsCfg || []).some((g) => g.symbols.some((s) => s.code === code));
+        if (exists) { flash("已在自选中：" + name, "#888888"); return; }
+        setGroupsCfg((prev) => (prev || []).map((g, gi) =>
+          gi === groupIndex ? { ...g, symbols: [...g.symbols, { code }] } : g));
+        const gname = (groupsCfg && groupsCfg[groupIndex]) ? groupsCfg[groupIndex].name : "";
+        flash("✔ 已添加 " + name + (gname ? " 到「" + gname + "」" : ""));
+        setStockQuery("");
+        setStockResults(null);
+      }, [groupsCfg, groupIndex, flash]);
+
+      // 添加分组（空名拦截，创建后切到新分组）
+      const addGroup = useCallback(() => {
+        const name = groupName.trim();
+        if (!name) { flash("分组名不能为空", "#ff5555"); return; }
+        const newIndex = (groupsCfg || []).length;
+        setGroupsCfg((prev) => [...(prev || []), { name, symbols: [] }]);
+        setGroupIndex(newIndex);
+        setShowAdd(null);
+        flash("✔ 已创建分组「" + name + "」");
+      }, [groupName, groupsCfg, flash]);
+
       // 按住胶囊/面板头部拖动（按钮/输入框上不触发）
       const startDrag = useCallback((e, mode) => {
         if (e.button !== 0) return;
@@ -964,6 +1024,7 @@ window.__ModuleLoader__.load({
               onClick: () => setGroupIndex(i),
             }, g.name + (g.count > 0 ? " (" + g.count + ")" : "")))),
         react.createElement("span", { className: "sk-right" },
+          react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd((v) => (v ? null : "menu")), title: "添加股票 / 分组" }, "＋"),
           react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"),
           themeToggle,
           react.createElement("button", { className: "sk-icon", onClick: () => load(true), title: "立即刷新" }, "⟳"),
@@ -998,7 +1059,46 @@ window.__ModuleLoader__.load({
             ? "配置：localStorage"
             : (data && data.config && data.config.source === "file" ? "~/.stocking/settings.json" : "默认分组")));
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, footer);
+      // 添加面板（菜单 / 股票搜索 / 分组创建）
+      const addPanel = showAdd ? react.createElement("div", { className: "sk-add-mask" },
+        react.createElement("div", { className: "sk-add-panel" },
+          react.createElement("div", { className: "sk-add-head" },
+            react.createElement("span", { className: "sk-add-title" },
+              showAdd === "menu" ? "添加" : showAdd === "stock" ? "添加股票" : "添加分组"),
+            react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd(null), title: "关闭" }, "✕")),
+          showAdd === "menu" && react.createElement("div", { className: "sk-add-menu" },
+            react.createElement("button", { className: "sk-add-menu-item", onClick: () => setShowAdd("stock") }, "📈 添加股票（搜索）"),
+            react.createElement("button", { className: "sk-add-menu-item", onClick: () => setShowAdd("group") }, "🗂 添加分组")),
+          showAdd === "stock" && react.createElement("div", { className: "sk-add-stock" },
+            react.createElement("input", {
+              className: "sk-add-input",
+              value: stockQuery,
+              autoFocus: true,
+              placeholder: "输入代码或名称搜索…",
+              onChange: (e) => setStockQuery(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Escape") setShowAdd(null); },
+            }),
+            stockResults === null
+              ? react.createElement("div", { className: "sk-add-empty" }, "输入代码或名称开始搜索")
+              : stockResults.length === 0
+                ? react.createElement("div", { className: "sk-add-empty" }, "未找到匹配的股票")
+                : react.createElement("div", { className: "sk-add-results" },
+                    stockResults.map((s) =>
+                      react.createElement("button", { key: s.code, className: "sk-add-result", onClick: () => addStock(s.code, s.name) },
+                        react.createElement("span", { className: "sk-add-result-code" }, s.code.replace(/^(sh|sz)/, "")),
+                        react.createElement("span", { className: "sk-add-result-name" }, s.name))))),
+          showAdd === "group" && react.createElement("div", { className: "sk-add-group" },
+            react.createElement("input", {
+              className: "sk-add-input",
+              value: groupName,
+              autoFocus: true,
+              placeholder: "分组名称…",
+              onChange: (e) => setGroupName(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") addGroup(); else if (e.key === "Escape") setShowAdd(null); },
+            }),
+            react.createElement("button", { className: "sk-add-confirm", onClick: addGroup }, "创建")))) : null;
+
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, footer, addPanel);
     }
 
     // ------------------------------------------------------------------ 插件主体

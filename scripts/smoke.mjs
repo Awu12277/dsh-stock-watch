@@ -58,3 +58,9 @@ if (mj.points && mj.points.length) {
 const c = await call("/dsh-stock-watch/config", "");
 const cj = JSON.parse(c.body);
 console.log("\n[CONFIG] status=" + c.status + " source=" + cj.source + " groups=" + (cj.groups ? cj.groups.length : 0) + " path=" + cj.path);
+
+for (const q of ["平安", "000001", "茅台", "zzzz"]) {
+  const s = await call("/dsh-stock-watch/stocks", "q=" + encodeURIComponent(q));
+  const sj = JSON.parse(s.body);
+  console.log("\n[STOCKS q=" + q + "] status=" + s.status + " total=" + sj.total + " sample=" + JSON.stringify(sj.rows.slice(0, 3)));
+}

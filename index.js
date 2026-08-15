@@ -12,11 +12,16 @@
  */
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const name = "dsh-stock-watch";
 /** Required services: webServer（HTTP 路由）。 */
 const inject = ["webServer"];
+
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const STOCKS_PATH = join(MODULE_DIR, "data", "a_stocks.json");
+let stocksCache = null;
 
 const MINUTE_API = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}&r=0.1";
 const KLINE_API = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{count},qfq";
@@ -131,6 +136,20 @@ function normalizeApiCode(code) {
   if (/^(60|68|51)/.test(code)) return "sh" + code;
   if (/^(00|30|39)/.test(code)) return "sz" + code;
   return "sh" + code;
+}
+
+/** 股票池：data/a_stocks.json（全 A 股 {code, name}，惰性加载并缓存；兼容 BOM） */
+async function loadStocks() {
+  if (stocksCache) return stocksCache;
+  try {
+    const text = await readFile(STOCKS_PATH, "utf8");
+    const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const parsed = JSON.parse(clean);
+    stocksCache = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    stocksCache = [];
+  }
+  return stocksCache;
 }
 
 async function fetchJson(url) {
@@ -313,6 +332,25 @@ function apply(ctx) {
   register("/dsh-stock-watch/config", async (_req, res) => {
     const loaded = await loadGroups();
     sendJson(res, 200, { groups: loaded.groups, source: loaded.source, path: loaded.path });
+  });
+
+  // 添加股票搜索：按代码或名称匹配全 A 股池，返回带市场前缀的代码
+  register("/dsh-stock-watch/stocks", async (req, res) => {
+    const needle = (queryOf(req).get("q") ?? "").trim();
+    if (!needle) {
+      sendJson(res, 200, { rows: [] });
+      return;
+    }
+    const lower = needle.toLowerCase();
+    const list = await loadStocks();
+    const rows = [];
+    for (const s of list) {
+      if (s.code.includes(lower) || (s.name && s.name.toLowerCase().includes(lower))) {
+        rows.push({ code: normalizeApiCode(s.code), name: s.name });
+        if (rows.length >= 50) break;
+      }
+    }
+    sendJson(res, 200, { rows, total: rows.length });
   });
 
   register("/dsh-stock-watch/quotes", async (req, res) => {
