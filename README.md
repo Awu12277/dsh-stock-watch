@@ -1,4 +1,11 @@
 # dsh-stock-watch
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-stock-watch"><img src="https://img.shields.io/npm/v/dsh-stock-watch?style=flat-square&color=00ff41&labelColor=050607" alt="npm version"></a>
+  <img src="https://img.shields.io/badge/license-MIT-ff1493?style=flat-square&labelColor=050607" alt="MIT">
+</p>
+
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 
 A 股自选股实时行情**盯盘插件**：在 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web 界面的**右上角**显示一个可折叠弹窗，实时监控自选股行情、切换分组、查看分时与 K 线、设置买卖目标价。
 
