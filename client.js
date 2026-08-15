@@ -34,6 +34,12 @@ window.__ModuleLoader__.load({
 .sk-tab{flex:none;padding:2px 9px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--sk-muted);cursor:pointer;font:inherit;white-space:nowrap}
 .sk-tab:hover{color:var(--sk-text)}
 .sk-tab-active{background:var(--sk-cyan-soft);color:var(--sk-cyan);border-color:var(--sk-cyan-border)}
+.sk-tab-wrap{display:flex;align-items:center;gap:2px;flex:none}
+.sk-tab-del{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:10px;font-weight:700;line-height:1;padding:0 2px;opacity:0;pointer-events:none}
+.sk-tab-wrap:hover .sk-tab-del{opacity:1;pointer-events:auto}
+.sk-tab-del:hover{color:#ff5555}
+.sk-del{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:11px;padding:0 2px;width:18px;flex:none;border-radius:4px}
+.sk-del:hover{color:#ff5555;background:var(--sk-hover)}
 .sk-right{display:flex;align-items:center;gap:4px;flex:none}
 .sk-countdown{color:var(--sk-muted);white-space:nowrap}
 .sk-icon{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:6px;font-family:inherit}
@@ -84,6 +90,9 @@ window.__ModuleLoader__.load({
 .sk-ma-chip-off{opacity:.35;text-decoration:line-through}
 .sk-ma-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--sk-panel-bg);display:flex;flex-direction:column;padding:10px}
+.sk-add-bar{display:flex;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft)}
+.sk-add-bar-btn{flex:1;background:transparent;border:1px dashed var(--sk-border);color:var(--sk-dim);border-radius:8px;padding:6px;cursor:pointer;font:inherit}
+.sk-add-bar-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
 .sk-add-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .sk-add-title{font-weight:700;color:var(--sk-cyan)}
 .sk-add-menu{display:flex;flex-direction:column;gap:6px}
@@ -91,6 +100,9 @@ window.__ModuleLoader__.load({
 .sk-add-menu-item:hover{border-color:var(--sk-cyan-border)}
 .sk-add-stock{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
 .sk-add-input{background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:5px 8px;font:inherit;outline:none}
+.sk-rename-input{width:120px;background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:1px 6px;font:inherit;outline:none}
+.sk-add-result-added .sk-add-result-name{color:var(--sk-muted)}
+.sk-add-result-badge{color:var(--sk-muted);font-size:10px;border:1px solid var(--sk-border);border-radius:999px;padding:0 5px;white-space:nowrap}
 .sk-add-results{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
 .sk-add-result{display:flex;gap:10px;align-items:center;background:transparent;border:none;color:var(--sk-text);border-radius:6px;padding:4px 8px;cursor:pointer;font:inherit;text-align:left}
 .sk-add-result:hover{background:var(--sk-hover)}
@@ -204,7 +216,7 @@ window.__ModuleLoader__.load({
     function Sparkline(props) {
       const prices = props.prices;
       const color = props.color;
-      const width = 84;
+      const width = 72;
       const height = 20;
       if (!Array.isArray(prices) || prices.length < 2) {
         return react.createElement("svg", { className: "sk-spark", width, height, viewBox: "0 0 " + width + " " + height });
@@ -610,6 +622,8 @@ window.__ModuleLoader__.load({
       const [stockQuery, setStockQuery] = useState("");
       const [stockResults, setStockResults] = useState(null);
       const [groupName, setGroupName] = useState("");
+      const [renameEdit, setRenameEdit] = useState(null);
+      const [renameTarget, setRenameTarget] = useState(null);
 
       // 配置：localStorage 优先，首次从 Host /config 迁移 settings.json，兜底默认分组
       useEffect(() => {
@@ -845,16 +859,20 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(timer);
       }, [showAdd, stockQuery]);
 
-      // 添加股票到当前分组（跨组去重）
+      // 添加股票到当前分组（当前分组重复 → 提示；其他分组重复 → 阻止；均不写入）
       const addStock = useCallback((code, name) => {
+        const cur = (groupsCfg && groupsCfg[groupIndex]) || null;
+        const inCurrent = cur ? cur.symbols.some((s) => s.code === code) : false;
+        if (inCurrent) { flash("该股票已添加", "#888888"); return; }
         const exists = (groupsCfg || []).some((g) => g.symbols.some((s) => s.code === code));
-        if (exists) { flash("已在自选中：" + name, "#888888"); return; }
+        if (exists) { flash("已在其他分组：" + name, "#888888"); return; }
         setGroupsCfg((prev) => (prev || []).map((g, gi) =>
           gi === groupIndex ? { ...g, symbols: [...g.symbols, { code }] } : g));
         const gname = (groupsCfg && groupsCfg[groupIndex]) ? groupsCfg[groupIndex].name : "";
         flash("✔ 已添加 " + name + (gname ? " 到「" + gname + "」" : ""));
         setStockQuery("");
         setStockResults(null);
+        setShowAdd(null); // 添加完成 → 回到股票列表
       }, [groupsCfg, groupIndex, flash]);
 
       // 添加分组（空名拦截，创建后切到新分组）
@@ -867,6 +885,44 @@ window.__ModuleLoader__.load({
         setShowAdd(null);
         flash("✔ 已创建分组「" + name + "」");
       }, [groupName, groupsCfg, flash]);
+
+      // 重命名分组（renameTarget 指定哪个分组）
+      const commitRename = useCallback(() => {
+        if (renameTarget === null) return;
+        const name = (renameEdit || "").trim();
+        if (!name) { flash("分组名不能为空", "#ff5555"); return; }
+        setGroupsCfg((prev) => (prev || []).map((g, gi) => (gi === renameTarget ? { ...g, name } : g)));
+        setRenameEdit(null);
+        setRenameTarget(null);
+        flash("✔ 已重命名为「" + name + "」");
+      }, [renameEdit, renameTarget, flash]);
+
+      // 从当前分组删除股票（同步移除列表行）
+      const removeStock = useCallback((code, name) => {
+        setGroupsCfg((prev) => (prev || []).map((g, gi) =>
+          gi === groupIndex ? { ...g, symbols: g.symbols.filter((s) => s.code !== code) } : g));
+        setData((d) => (d && Array.isArray(d.rows)
+          ? { ...d, rows: d.rows.filter((r) => r.code !== code) }
+          : d));
+        flash("已删除 " + name, "#888888");
+      }, [groupIndex, flash]);
+
+      // 删除分组（确认提示；至少保留一个分组；删除后修正当前分组下标）
+      const deleteGroup = useCallback((idx) => {
+        const g = groupsCfg && groupsCfg[idx];
+        if (!g) return;
+        if ((groupsCfg || []).length <= 1) { flash("至少保留一个分组", "#ff5555"); return; }
+        if (!window.confirm("确定删除分组「" + g.name + "」吗？其包含 " + g.symbols.length + " 只股票")) return;
+        setGroupsCfg((prev) => (prev || []).filter((_, gi) => gi !== idx));
+        setGroupIndex((cur) => {
+          if (idx < cur) return cur - 1;
+          if (idx === cur) return 0;
+          return cur;
+        });
+        setView(null);
+        setShowAdd(null);
+        flash("已删除分组「" + g.name + "」", "#888888");
+      }, [groupsCfg, flash]);
 
       // 按住胶囊/面板头部拖动（按钮/输入框上不触发）
       const startDrag = useCallback((e, mode) => {
@@ -1018,13 +1074,29 @@ window.__ModuleLoader__.load({
         react.createElement("span", { className: "sk-title" }, "📈 自选股盯盘"),
         react.createElement("span", { className: "sk-tabs" },
           groups.map((g, i) =>
-            react.createElement("button", {
-              key: i,
-              className: "sk-tab" + (i === groupIndex ? " sk-tab-active" : ""),
-              onClick: () => setGroupIndex(i),
-            }, g.name + (g.count > 0 ? " (" + g.count + ")" : "")))),
+            react.createElement("span", { key: i, className: "sk-tab-wrap" + (i === groupIndex ? " sk-tab-wrap-active" : "") },
+              renameTarget === i
+                ? react.createElement("input", {
+                    className: "sk-rename-input",
+                    value: renameEdit,
+                    autoFocus: true,
+                    placeholder: "分组名称…",
+                    onChange: (e) => setRenameEdit(e.target.value),
+                    onKeyDown: (e) => { if (e.key === "Enter") commitRename(); else if (e.key === "Escape") { setRenameEdit(null); setRenameTarget(null); } },
+                    onBlur: () => commitRename(),
+                  })
+                : react.createElement("button", {
+                    className: "sk-tab" + (i === groupIndex ? " sk-tab-active" : ""),
+                    onClick: () => setGroupIndex(i),
+                    onDoubleClick: (e) => { e.preventDefault(); setRenameTarget(i); setRenameEdit(g.name); },
+                    title: "双击重命名「" + g.name + "」",
+                  }, g.name + (g.count > 0 ? " (" + g.count + ")" : "")),
+              react.createElement("button", {
+                className: "sk-tab-del",
+                title: "删除分组「" + g.name + "」",
+                onClick: (e) => { e.stopPropagation(); deleteGroup(i); },
+              }, "✕")))),
         react.createElement("span", { className: "sk-right" },
-          react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd((v) => (v ? null : "menu")), title: "添加股票 / 分组" }, "＋"),
           react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"),
           themeToggle,
           react.createElement("button", { className: "sk-icon", onClick: () => load(true), title: "立即刷新" }, "⟳"),
@@ -1047,7 +1119,12 @@ window.__ModuleLoader__.load({
                 react.createElement("span", { className: "sk-chg", style: { color } }, row.live ? ((row.changePercent >= 0 ? "+" : "") + row.changePercent.toFixed(2) + "%") : ""),
                 trig
                   ? react.createElement("span", { className: "sk-trigger", style: { color: trig.c, borderColor: trig.c } }, trig.t)
-                  : react.createElement("span", { className: "sk-trigger sk-trigger-none" }, "-"));
+                  : react.createElement("span", { className: "sk-trigger sk-trigger-none" }, "-"),
+                react.createElement("button", {
+                  className: "sk-del",
+                  title: "从列表删除 " + row.name,
+                  onClick: (e) => { e.stopPropagation(); removeStock(row.code, row.name); },
+                }, "✕"));
             }));
 
       const footer = react.createElement("div", { className: "sk-footer" },
@@ -1064,11 +1141,8 @@ window.__ModuleLoader__.load({
         react.createElement("div", { className: "sk-add-panel" },
           react.createElement("div", { className: "sk-add-head" },
             react.createElement("span", { className: "sk-add-title" },
-              showAdd === "menu" ? "添加" : showAdd === "stock" ? "添加股票" : "添加分组"),
+              showAdd === "stock" ? "添加股票" : "添加分组"),
             react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd(null), title: "关闭" }, "✕")),
-          showAdd === "menu" && react.createElement("div", { className: "sk-add-menu" },
-            react.createElement("button", { className: "sk-add-menu-item", onClick: () => setShowAdd("stock") }, "📈 添加股票（搜索）"),
-            react.createElement("button", { className: "sk-add-menu-item", onClick: () => setShowAdd("group") }, "🗂 添加分组")),
           showAdd === "stock" && react.createElement("div", { className: "sk-add-stock" },
             react.createElement("input", {
               className: "sk-add-input",
@@ -1083,10 +1157,17 @@ window.__ModuleLoader__.load({
               : stockResults.length === 0
                 ? react.createElement("div", { className: "sk-add-empty" }, "未找到匹配的股票")
                 : react.createElement("div", { className: "sk-add-results" },
-                    stockResults.map((s) =>
-                      react.createElement("button", { key: s.code, className: "sk-add-result", onClick: () => addStock(s.code, s.name) },
+                    stockResults.map((s) => {
+                      const inCurrent = (groupsCfg && groupsCfg[groupIndex] && groupsCfg[groupIndex].symbols.some((x) => x.code === s.code)) || false;
+                      return react.createElement("button", {
+                        key: s.code,
+                        className: "sk-add-result" + (inCurrent ? " sk-add-result-added" : ""),
+                        onClick: () => addStock(s.code, s.name),
+                      },
                         react.createElement("span", { className: "sk-add-result-code" }, s.code.replace(/^(sh|sz)/, "")),
-                        react.createElement("span", { className: "sk-add-result-name" }, s.name))))),
+                        react.createElement("span", { className: "sk-add-result-name" }, s.name),
+                        inCurrent ? react.createElement("span", { className: "sk-add-result-badge" }, "已添加") : null);
+                    }))),
           showAdd === "group" && react.createElement("div", { className: "sk-add-group" },
             react.createElement("input", {
               className: "sk-add-input",
@@ -1098,7 +1179,12 @@ window.__ModuleLoader__.load({
             }),
             react.createElement("button", { className: "sk-add-confirm", onClick: addGroup }, "创建")))) : null;
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, footer, addPanel);
+      // 分组列表底部：添加股票 / 分组 按钮
+      const addBar = react.createElement("div", { className: "sk-add-bar" },
+        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("stock") }, "＋ 添加股票"),
+        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("group") }, "🗂 添加分组"));
+
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, footer, addPanel);
     }
 
     // ------------------------------------------------------------------ 插件主体
