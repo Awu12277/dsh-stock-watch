@@ -39,6 +39,9 @@ window.__ModuleLoader__.load({
 .sk-tab-wrap:hover .sk-tab-del{opacity:1;pointer-events:auto}
 .sk-tab-del:hover{color:#ff5555}
 .sk-del{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:11px;padding:0 2px;width:18px;flex:none;border-radius:4px}
+.sk-resize{position:absolute;width:14px;height:14px;z-index:6;opacity:.55}
+.sk-resize:hover{opacity:1}
+.sk-resize-br{bottom:0;right:0;cursor:nwse-resize;border-bottom-right-radius:10px;background:linear-gradient(315deg,transparent 62%,var(--sk-muted) 62%,var(--sk-muted) 75%,transparent 75%)}
 .sk-del:hover{color:#ff5555;background:var(--sk-hover)}
 .sk-right{display:flex;align-items:center;gap:4px;flex:none}
 .sk-countdown{color:var(--sk-muted);white-space:nowrap}
@@ -47,7 +50,7 @@ window.__ModuleLoader__.load({
 .sk-rows{overflow-y:auto;padding:4px 6px 8px;flex:1 1 auto}
 .sk-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;cursor:pointer}
 .sk-row:hover{background:var(--sk-hover)}
-.sk-name{display:flex;flex-direction:column;width:96px;min-width:96px}
+.sk-name{display:flex;flex-direction:column;flex:1 1 auto;min-width:88px}
 .sk-name-text{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sk-code{color:var(--sk-muted);font-size:11px}
 .sk-spark{flex:none;display:block}
@@ -60,6 +63,7 @@ window.__ModuleLoader__.load({
 .sk-foot-left{max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sk-foot-right{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sk-detail-header{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-bottom:1px solid var(--sk-border-soft)}
+.sk-detail-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sk-back{align-self:flex-start;background:transparent;border:1px solid var(--sk-border);color:var(--sk-muted);border-radius:6px;padding:2px 8px;cursor:pointer;font:inherit}
 .sk-back:hover{color:var(--sk-text);border-color:var(--sk-cyan-border)}
 .sk-detail-info{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -84,7 +88,11 @@ window.__ModuleLoader__.load({
 .sk-pill{cursor:grab}
 .sk-pill:active{cursor:grabbing}
 .sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
-.sk-ma-row{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.sk-ma-row{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.sk-ma-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.sk-zoom{display:inline-flex;gap:4px;align-items:center}
+.sk-zoom-btn{background:transparent;border:1px solid var(--sk-border);color:var(--sk-dim);border-radius:6px;min-width:22px;height:20px;padding:0 6px;cursor:pointer;font:inherit;font-size:11px;line-height:1;white-space:nowrap}
+.sk-zoom-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
 .sk-ma-chip{display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--sk-border);color:var(--sk-dim);border-radius:999px;padding:1px 8px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
 .sk-ma-chip:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
 .sk-ma-chip-off{opacity:.35;text-decoration:line-through}
@@ -126,6 +134,11 @@ window.__ModuleLoader__.load({
       { name: "分组2", symbols: [] },
     ];
     const POS_KEY = "stocking.pos.v1";
+    const SIZE_KEY = "stocking.size.v1";
+    const PANEL_MIN_W = 320;
+    const PANEL_MAX_W = 640;
+    const PANEL_MIN_H = 240;
+    const PANEL_MAX_H = 820;
     const PILL_W = 132;
     const PANEL_W = 400;
     const MA_PERIODS = [5, 10, 20, 60];
@@ -240,6 +253,7 @@ window.__ModuleLoader__.load({
       const candles = props.candles || [];
       const width = props.width || 380;
       const height = props.height || 228;
+      const fill = props.fill === true;
       if (!Array.isArray(candles) || candles.length === 0) {
         return react.createElement("div", { className: "sk-chart-empty" }, "暂无K线数据");
       }
@@ -269,7 +283,10 @@ window.__ModuleLoader__.load({
         els.push(react.createElement("line", { key: "w" + i, x1: x, y1: yOf(c.high), x2: x, y2: yOf(c.low), stroke: color, strokeWidth: 1 }));
         els.push(react.createElement("rect", { key: "b" + i, x: x - bodyW / 2, y: top, width: bodyW, height: bodyH, fill: color }));
       }
-      return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
+      const svgEl = react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height, style: fill ? { width: "100%", height: "100%", display: "block" } : undefined }, els);
+      return fill
+        ? react.createElement("div", { style: { flex: "1 1 0", minHeight: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" } }, svgEl)
+        : svgEl;
     }
 
     // ------------------------------------------------------ 分时时间轴：按 A 股交易时段（北京时间 UTC+8）标注
@@ -303,6 +320,7 @@ window.__ModuleLoader__.load({
       const width = props.width || 380;
       const height = props.height || 228;
       const dark = props.dark;
+      const fill = props.fill === true;
       if (!Array.isArray(points) || points.length < 2) {
         return react.createElement("div", { className: "sk-chart-empty" }, "暂无分时数据");
       }
@@ -347,7 +365,10 @@ window.__ModuleLoader__.load({
       els.push(react.createElement("text", { key: "t0", x: 4, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[0].t)));
       els.push(react.createElement("text", { key: "t1", x: xOf(midIdx) - 14, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[midIdx].t)));
       els.push(react.createElement("text", { key: "t2", x: width - 34, y: height - 6, fill: labelFill, fontSize: 9 }, fmtBeijingClock(points[points.length - 1].t)));
-      return react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height }, els);
+      const svgEl = react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height, style: fill ? { width: "100%", height: "100%", display: "block" } : undefined }, els);
+      return fill
+        ? react.createElement("div", { style: { flex: "1 1 0", minHeight: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" } }, svgEl)
+        : svgEl;
     }
 
     // 简单移动平均：按收盘价计算，返回 [{time, value}]（前 period-1 根无值，线从有值处开始）
@@ -372,6 +393,8 @@ window.__ModuleLoader__.load({
       const fitKey = props.fitKey || "";
       const dark = props.dark;
       const maVisible = props.maVisible || {};
+      const fill = props.fill === true;
+      const chartApiRef = props.chartApiRef || null;
       const boxRef = useRef(null);
       const chartRef = useRef(null);
       const seriesRef = useRef(null);
@@ -382,8 +405,7 @@ window.__ModuleLoader__.load({
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
         const chart = lwc.createChart(el, {
-          width: el.clientWidth || 380,
-          height,
+          ...(fill ? { autoSize: true } : { width: el.clientWidth || 380, height }),
           layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#9ca3af" : "#6b7280", fontSize: 10 },
           grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" } },
           rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)" },
@@ -432,14 +454,16 @@ window.__ModuleLoader__.load({
         chartRef.current = chart;
         seriesRef.current = series;
         volRef.current = vol;
+        if (chartApiRef) chartApiRef.current = chart;
         return () => {
           chart.remove();
           chartRef.current = null;
           seriesRef.current = null;
           volRef.current = null;
           maRefs.current = [];
+          if (chartApiRef) chartApiRef.current = null;
         };
-      }, [lwc, height, dark]);
+      }, [lwc, height, dark, fill]);
       // MA 显隐切换：applyOptions({ visible })，无需重建图表
       useEffect(() => {
         for (const ma of maRefs.current) {
@@ -460,7 +484,7 @@ window.__ModuleLoader__.load({
           chartRef.current.timeScale().fitContent();
         }
       }, [candles, lwc, fitKey]);
-      return react.createElement("div", { ref: boxRef, className: "sk-chart-box", style: { width: "100%", height } });
+      return react.createElement("div", { ref: boxRef, className: "sk-chart-box", style: fill ? { width: "100%", flex: "1 1 0", minHeight: 0 } : { width: "100%", height } });
     }
 
     // -------------------------------------------------------------- Lightweight Charts 分时
@@ -471,6 +495,7 @@ window.__ModuleLoader__.load({
       const height = props.height || 240;
       const dark = props.dark;
       const fitKey = props.fitKey || "";
+      const fill = props.fill === true;
       const boxRef = useRef(null);
       const chartRef = useRef(null);
       const lineRef = useRef(null);
@@ -481,12 +506,17 @@ window.__ModuleLoader__.load({
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
         const chart = lwc.createChart(el, {
-          width: el.clientWidth || 380,
-          height,
+          ...(fill ? { autoSize: true } : { width: el.clientWidth || 380, height }),
           layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#9ca3af" : "#6b7280", fontSize: 10 },
           grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" } },
           rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)" },
-          timeScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)", timeVisible: true, secondsVisible: false },
+          timeScale: {
+            borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)",
+            timeVisible: true,
+            secondsVisible: false,
+            // v4 中 tickMarkFormatter 属于 timeScale 选项（localization 里只有 timeFormatter）
+            tickMarkFormatter: (time, tickMarkType) => beijingTickFormatter(time, tickMarkType),
+          },
           crosshair: {
             mode: 0,
             vertLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
@@ -494,7 +524,6 @@ window.__ModuleLoader__.load({
           },
           localization: {
             timeFormatter: (time) => beijingTickFormatter(time, 3),
-            tickMarkFormatter: (time, tickMarkType) => beijingTickFormatter(time, tickMarkType),
           },
         });
         const line = chart.addLineSeries({
@@ -520,7 +549,7 @@ window.__ModuleLoader__.load({
           avgRef.current = null;
           baselineRef.current = null;
         };
-      }, [lwc, height, dark]);
+      }, [lwc, height, dark, fill]);
       useEffect(() => {
         const line = lineRef.current;
         const avg = avgRef.current;
@@ -568,7 +597,7 @@ window.__ModuleLoader__.load({
           } catch { /* ignore */ }
         }
       }, [prevClose, lwc, dark]);
-      return react.createElement("div", { ref: boxRef, className: "sk-chart-box", style: { width: "100%", height } });
+      return react.createElement("div", { ref: boxRef, className: "sk-chart-box", style: fill ? { width: "100%", flex: "1 1 0", minHeight: 0 } : { width: "100%", height } });
     }
 
     // -------------------------------------------------------------- 主面板
@@ -593,12 +622,39 @@ window.__ModuleLoader__.load({
       const suppressClickRef = useRef(false);
       const pillRef = useRef(null);
       const pillWidthRef = useRef(PILL_W);
+      // K线缩放控制：lightweight-charts timeScale 的 barSpacing 越大越放大，fitContent 还原
+      const klineChartApiRef = useRef(null);
+      const zoomKline = useCallback((factor) => {
+        const chart = klineChartApiRef.current;
+        if (!chart) return;
+        try {
+          const ts = chart.timeScale();
+          const cur = typeof ts.options().barSpacing === "number" ? ts.options().barSpacing : 6;
+          ts.applyOptions({ barSpacing: Math.min(60, Math.max(2, cur * factor)) });
+        } catch { /* 图表实例暂不可用则忽略 */ }
+      }, []);
+      const resetKline = useCallback(() => {
+        const chart = klineChartApiRef.current;
+        if (!chart) return;
+        try { chart.timeScale().fitContent(); } catch { /* 图表实例暂不可用则忽略 */ }
+      }, []);
       const [pos, setPos] = useState(() => {
         try {
           const raw = window.localStorage.getItem(POS_KEY);
           if (raw) {
             const p = JSON.parse(raw);
             if (typeof p.x === "number" && typeof p.y === "number") return p;
+          }
+        } catch { /* ignore */ }
+        return null;
+      });
+      // 面板尺寸（左下/右下角拉伸，localStorage 持久化；null = 默认 400px 宽 + 内容高）
+      const [size, setSize] = useState(() => {
+        try {
+          const raw = window.localStorage.getItem(SIZE_KEY);
+          if (raw) {
+            const s = JSON.parse(raw);
+            if (typeof s.w === "number" && typeof s.h === "number") return s;
           }
         } catch { /* ignore */ }
         return null;
@@ -811,6 +867,14 @@ window.__ModuleLoader__.load({
           if (!d) return;
           const dx = e.clientX - d.startX;
           const dy = e.clientY - d.startY;
+          if (d.mode === "resize") {
+            // 右下角：向右/下拉伸；左下角：向左/下拉伸（宽高钳制）
+            const dw = d.handle === "br" ? dx : -dx;
+            const w = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, d.baseW + dw));
+            const h = Math.min(PANEL_MAX_H, Math.max(PANEL_MIN_H, d.baseH + dy));
+            setSize({ w, h });
+            return;
+          }
           if (!d.moved && Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
           if (d.moved) setPos({ x: d.baseX + dx, y: d.baseY + dy });
         };
@@ -835,6 +899,14 @@ window.__ModuleLoader__.load({
           window.localStorage.setItem(POS_KEY, JSON.stringify(pos));
         } catch { /* ignore */ }
       }, [pos]);
+
+      // 尺寸变化 → 持久化
+      useEffect(() => {
+        if (!size) return;
+        try {
+          window.localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+        } catch { /* ignore */ }
+      }, [size]);
 
       // MA 显隐配置 → 持久化
       useEffect(() => {
@@ -936,15 +1008,37 @@ window.__ModuleLoader__.load({
         e.preventDefault();
       }, [pos]);
 
-      // 面板位置：右边缘与胶囊右边缘对齐（跟随胶囊）
-      const panelStyle = (() => {
-        if (!pos) return undefined;
-        const pw = pillWidthRef.current || PILL_W;
-        return {
-          left: Math.max(8, Math.min(pos.x + pw - PANEL_W, window.innerWidth - PANEL_W - 8)),
-          top: Math.max(8, Math.min(pos.y, window.innerHeight - 320)),
-          right: "auto",
+      // 按住面板左下/右下角拉伸尺寸
+      const startResize = useCallback((e, handle) => {
+        if (e.button !== 0) return;
+        const base = size || { w: 400, h: 0 };
+        dragRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          baseW: base.w,
+          baseH: base.h,
+          moved: true,
+          mode: "resize",
+          handle,
         };
+        e.preventDefault();
+      }, [size]);
+
+      // 面板位置：右边缘与胶囊右边缘对齐（跟随胶囊）；尺寸：拖拽拉伸后固定
+      const panelStyle = (() => {
+        const st = {};
+        if (pos) {
+          const pw = pillWidthRef.current || PILL_W;
+          st.left = Math.max(8, Math.min(pos.x + pw - PANEL_W, window.innerWidth - PANEL_W - 8));
+          st.top = Math.max(8, Math.min(pos.y, window.innerHeight - 320));
+          st.right = "auto";
+        }
+        if (size) {
+          st.width = size.w + "px";
+          st.height = size.h + "px";
+          st.maxHeight = "none"; // 固定尺寸时取消 78vh 上限，拉伸才生效
+        }
+        return Object.keys(st).length ? st : undefined;
       })();
 
       dataRef.current = data;
@@ -958,6 +1052,9 @@ window.__ModuleLoader__.load({
         onClick: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
         title: theme === "dark" ? "切换到浅色主题" : "切换到暗色主题",
       }, theme === "dark" ? "☀️" : "🌙");
+
+      // 面板右下角拉伸手柄（列表页与详情页共用）
+      const resizeHandles = react.createElement("div", { className: "sk-resize sk-resize-br", title: "拉伸面板", onMouseDown: (e) => startResize(e, "br") });
 
       // —— 折叠态：可拖动小药丸 ——
       if (!expanded) {
@@ -995,11 +1092,11 @@ window.__ModuleLoader__.load({
         const dark = theme === "dark";
         const chartEl = isMinute
           ? (lwc
-              ? react.createElement(MinuteChart, { lwc, points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, height: 240, dark, fitKey: view.code + ":minute" })
-              : react.createElement(SvgMinute, { points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, width: 380, height: 228, dark }))
+              ? react.createElement(MinuteChart, { lwc, points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, height: 240, dark, fitKey: view.code + ":minute", fill: !!size })
+              : react.createElement(SvgMinute, { points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, width: 380, height: 228, dark, fill: !!size }))
           : (lwc
-              ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period, maVisible })
-              : react.createElement(SvgCandles, { candles, width: 380, height: 228 }));
+              ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period, maVisible, fill: !!size, chartApiRef: klineChartApiRef })
+              : react.createElement(SvgCandles, { candles, width: 380, height: 228, fill: !!size }));
         const footText = isMinute
           ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : (m && Array.isArray(m.points) ? m.points.length + " 个分时点" : "")))
           : (k === null ? "K线加载中…" : (k && k.error ? "K线：" + k.error : (candles.length + " 根K线")));
@@ -1035,7 +1132,9 @@ window.__ModuleLoader__.load({
         };
         return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle },
           react.createElement("div", { className: "sk-detail-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
-            react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
+            react.createElement("div", { className: "sk-detail-top" },
+              react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
+              react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "最小化回胶囊" }, "—")),
             react.createElement("div", { className: "sk-detail-info" },
               react.createElement("span", { className: "sk-detail-name" }, row ? row.name : view.code),
               react.createElement("span", { className: "sk-detail-price", style: { color } }, row && row.live ? formatPrice(row.price) : "--"),
@@ -1051,22 +1150,28 @@ window.__ModuleLoader__.load({
                   onClick: () => setPeriod(p),
                 }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K")))),
             !isMinute && react.createElement("div", { className: "sk-ma-row" },
-              MA_PERIODS.map((p) => {
-                const on = !!maVisible[p];
-                return react.createElement("button", {
-                  key: p,
-                  className: "sk-ma-chip" + (on ? "" : " sk-ma-chip-off"),
-                  title: (on ? "隐藏" : "显示") + " MA" + p,
-                  onClick: () => setMaVisible((v) => ({ ...v, [p]: !v[p] })),
-                },
-                  react.createElement("span", { className: "sk-ma-dot", style: { background: maColor(p, dark) } }),
-                  "MA" + p);
-              })),
+              react.createElement("span", { className: "sk-zoom" },
+                react.createElement("button", { className: "sk-zoom-btn", title: "缩小K线", onClick: () => zoomKline(1 / 1.35) }, "−"),
+                react.createElement("button", { className: "sk-zoom-btn", title: "放大K线", onClick: () => zoomKline(1.35) }, "+"),
+                react.createElement("button", { className: "sk-zoom-btn", title: "重置K线缩放", onClick: () => resetKline() }, "重置")),
+              react.createElement("span", { className: "sk-ma-chips" },
+                MA_PERIODS.map((p) => {
+                  const on = !!maVisible[p];
+                  return react.createElement("button", {
+                    key: p,
+                    className: "sk-ma-chip" + (on ? "" : " sk-ma-chip-off"),
+                    title: (on ? "隐藏" : "显示") + " MA" + p,
+                    onClick: () => setMaVisible((v) => ({ ...v, [p]: !v[p] })),
+                  },
+                    react.createElement("span", { className: "sk-ma-dot", style: { background: maColor(p, dark) } }),
+                    "MA" + p);
+                }))),
           chartEl,
           react.createElement("div", { className: "sk-detail-foot" },
             react.createElement("span", null, footText),
             react.createElement("span", { className: "sk-right" }, themeToggle,
-              react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"))));
+              react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"))),
+          resizeHandles);
       }
 
       // —— 列表视图 ——
@@ -1102,9 +1207,11 @@ window.__ModuleLoader__.load({
           react.createElement("button", { className: "sk-icon", onClick: () => load(true), title: "立即刷新" }, "⟳"),
           react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "折叠" }, "—")));
 
+      // 面板定高时列表区域 flex:1 1 0 强制填满并滚动
+      const rowsFill = size ? { flex: "1 1 0", minHeight: 0 } : undefined;
       const body = rows.length === 0
-        ? react.createElement("div", { className: "sk-empty" }, error ? "行情获取失败，请稍后重试" : "（当前分组为空）")
-        : react.createElement("div", { className: "sk-rows" },
+        ? react.createElement("div", { className: "sk-empty", style: rowsFill }, error ? "行情获取失败，请稍后重试" : "（当前分组为空）")
+        : react.createElement("div", { className: "sk-rows", style: rowsFill },
             rows.map((row) => {
               const isUp = row.live && row.changePercent >= 0;
               const color = row.live ? (isUp ? UP : DOWN) : FLAT;
@@ -1184,7 +1291,7 @@ window.__ModuleLoader__.load({
         react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("stock") }, "＋ 添加股票"),
         react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("group") }, "🗂 添加分组"));
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, footer, addPanel);
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, footer, resizeHandles, addPanel);
     }
 
     // ------------------------------------------------------------------ 插件主体
