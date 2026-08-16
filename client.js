@@ -26,6 +26,14 @@ window.__ModuleLoader__.load({
 .sk-pill-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
 .sk-pill-summary{display:inline-flex;gap:6px;font-weight:600}
 .sk-pill-loading{color:var(--sk-muted)}
+/* 贴边吸附：胶囊变为屏幕边缘的半球，显示涨/跌家数（平边贴屏幕边缘，弧面朝内） */
+.sk-pill.sk-dock{box-sizing:border-box;width:52px;height:44px;flex-direction:column;gap:1px;padding:3px 4px;justify-content:center;text-align:center}
+.sk-dock-left{border-radius:0 22px 22px 0}
+.sk-dock-right{border-radius:22px 0 0 22px}
+.sk-dock-top{border-radius:0 0 26px 26px}
+.sk-dock-bottom{border-radius:26px 26px 0 0}
+.sk-dock-body{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.05}
+.sk-dock-count{font-size:10px;font-weight:700;white-space:nowrap}
 .sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:var(--sk-panel-bg);border:1px solid var(--sk-border);color:var(--sk-text);box-shadow:var(--sk-shadow);backdrop-filter:blur(10px);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;pointer-events:auto}
 .sk-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--sk-border-soft)}
 .sk-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
@@ -140,6 +148,9 @@ window.__ModuleLoader__.load({
     const PANEL_MIN_H = 240;
     const PANEL_MAX_H = 820;
     const PILL_W = 132;
+    const DOCK_W = 52;   // 贴边半球尺寸：吸附到屏幕边缘后胶囊变为半球形（扁矮）
+    const DOCK_H = 44;
+    const SNAP_PX = 36;  // 拖拽吸附阈值：距边缘 SNAP_PX 内自动贴边
     const PANEL_W = 400;
     const MA_PERIODS = [5, 10, 20, 60];
     const MA_COLOR = { 10: "#ffcc00", 20: "#ff5cd2", 60: "#00ff41" };
@@ -876,7 +887,18 @@ window.__ModuleLoader__.load({
             return;
           }
           if (!d.moved && Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
-          if (d.moved) setPos({ x: d.baseX + dx, y: d.baseY + dy });
+          if (d.moved) {
+            // 屏幕四周吸附：靠近边缘即贴边（贴边位置与半球尺寸一致，保证派生 dock 判定稳定）
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            let sx = d.baseX + dx;
+            let sy = d.baseY + dy;
+            if (sx <= SNAP_PX) sx = 0;
+            else if (sx >= vw - DOCK_W - SNAP_PX) sx = vw - DOCK_W;
+            if (sy <= SNAP_PX) sy = 0;
+            else if (sy >= vh - DOCK_H - SNAP_PX) sy = vh - DOCK_H;
+            setPos({ x: sx, y: sy });
+          }
         };
         const onUp = () => {
           const d = dragRef.current;
@@ -1063,9 +1085,27 @@ window.__ModuleLoader__.load({
               react.createElement("span", { style: { color: UP } }, upCount + "↑"),
               react.createElement("span", { style: { color: DOWN } }, downCount + "↓"))
           : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…");
+        // 贴边吸附态：胶囊吸附到屏幕边缘后变为半球，显示涨/跌家数
+        const dock = (() => {
+          if (!pos) return null;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          if (pos.x <= 0) return "left";
+          if (pos.x >= vw - DOCK_W - 2) return "right";
+          if (pos.y <= 0) return "top";
+          if (pos.y >= vh - DOCK_H - 2) return "bottom";
+          return null;
+        })();
+        const dockBody = dock
+          ? (data && rows.length > 0
+              ? react.createElement("span", { className: "sk-dock-body" },
+                  react.createElement("span", { className: "sk-dock-count", style: { color: UP } }, upCount + "↑"),
+                  react.createElement("span", { className: "sk-dock-count", style: { color: DOWN } }, downCount + "↓"))
+              : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…"))
+          : null;
         if (pillRef.current) pillWidthRef.current = pillRef.current.offsetWidth || PILL_W;
         return react.createElement("div", {
-          className: "sk-pill sk-theme-" + theme,
+          className: "sk-pill sk-theme-" + theme + (dock ? " sk-dock sk-dock-" + dock : ""),
           ref: pillRef,
           style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
           onMouseDown: (e) => startDrag(e, "pill"),
@@ -1073,10 +1113,12 @@ window.__ModuleLoader__.load({
             if (suppressClickRef.current) { suppressClickRef.current = false; return; }
             setExpanded(true);
           },
-          title: "展开自选股盯盘（按住可拖动）",
+          title: "展开自选股盯盘（按住可拖动，拖到屏幕边缘可吸附）",
         },
-          react.createElement("span", { className: "sk-pill-title" }, "📈 自选股"),
-          summary);
+          dock ? dockBody : [
+            react.createElement("span", { key: "t", className: "sk-pill-title" }, "📈 自选股"),
+            summary,
+          ]);
       }
 
       // —— 详情视图 ——

@@ -114,6 +114,65 @@ try {
   }
   results.clicks = clicks;
   results.panelStillThere = await page.evaluate(() => !!document.querySelector(".sk-detail-header"));
+
+  // —— 6) 贴边吸附 + 屏幕边缘半球 ——
+  const pillBox = async () => {
+    await page.waitForSelector(".sk-pill", { timeout: 10000 });
+    return page.$eval(".sk-pill", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height, cls: el.className, text: el.textContent };
+    });
+  };
+  const dragPillTo = async (tx, ty) => {
+    const b = await pillBox();
+    await page.mouse.move(b.x + b.w / 2, b.y + b.h / 2);
+    await page.mouse.down();
+    await page.mouse.move(tx, ty, { steps: 14 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  };
+  const waitClass = async (needle, timeout = 3000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeout) {
+      if (await page.evaluate((n) => document.querySelector(".sk-pill").className.includes(n), needle)) return true;
+      await page.waitForTimeout(100);
+    }
+    return false;
+  };
+
+  // 先最小化回胶囊
+  try {
+    await page.click('.sk-icon[title="最小化回胶囊"]', { timeout: 5000 });
+    await page.waitForSelector(".sk-pill", { timeout: 5000 });
+    results.minimized = true;
+  } catch (e) {
+    results.minimized = "FAIL " + e.message.split("\n")[0];
+  }
+
+  const vwvh = await page.evaluate(() => ({ vw: window.innerWidth, vh: window.innerHeight }));
+  const docks = {};
+  // 右边缘
+  await dragPillTo(vwvh.vw - 8, 300);
+  docks.right = { ok: await waitClass("sk-dock-right"), box: await pillBox() };
+  // 左边缘
+  await dragPillTo(10, 300);
+  docks.left = { ok: await waitClass("sk-dock-left"), box: await pillBox() };
+  // 上边缘
+  await dragPillTo(600, 4);
+  docks.top = { ok: await waitClass("sk-dock-top"), box: await pillBox() };
+  // 下边缘
+  await dragPillTo(600, vwvh.vh - 4);
+  docks.bottom = { ok: await waitClass("sk-dock-bottom"), box: await pillBox() };
+  // 拖回屏幕中央 → 恢复普通胶囊
+  await dragPillTo(vwvh.vw / 2, vwvh.vh / 2);
+  docks.center = { ok: await waitClass("sk-dock", 1500) === false, box: await pillBox() };
+  results.docks = docks;
+  // 贴边半球上点击 → 面板仍可展开
+  await dragPillTo(vwvh.vw - 8, 300); // 回到右边缘
+  await page.click(".sk-pill");
+  await page.waitForSelector(".sk-detail-header, .sk-header", { timeout: 10000 });
+  results.expandFromDock = true;
+
   results.pageErrors = errors.slice(0, 5);
 } finally {
   await browser.close();
