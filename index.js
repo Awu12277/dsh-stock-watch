@@ -12,6 +12,7 @@
  */
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +22,47 @@ const inject = ["webServer"];
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const STOCKS_PATH = join(MODULE_DIR, "data", "a_stocks.json");
+const SKILLS_SRC_DIR = join(MODULE_DIR, "skills");
+/** 安装时注入到用户技能目录的技能（与「一键分析」提示词引用的技能保持一致）。 */
+const BUNDLED_SKILLS = ["investment-research", "frontend-design"];
+
+// ---------------------------------------------------------------------------
+// 技能注入：安装插件（首次启动 dsh web）时把自带技能复制到用户技能目录
+// ~/.agents/skills/<name>/，让「一键分析」引用的技能真正可用（此前只是随包文件）。
+// - 目标已存在 SKILL.md 则跳过，尊重用户已有/自定义版本（删除后重启可重新注入）
+// - 可用环境变量覆盖：DSH_STOCK_WATCH_SKILLS_DIR（目标目录）、DSH_STOCK_WATCH_NO_SKILLS=1（禁用）
+// ---------------------------------------------------------------------------
+function copyDirSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const s = join(src, entry.name);
+    const d = join(dest, entry.name);
+    if (entry.isDirectory()) copyDirSync(s, d);
+    else copyFileSync(s, d);
+  }
+}
+
+function ensureUserSkills() {
+  if (process.env.DSH_STOCK_WATCH_NO_SKILLS === "1") return;
+  const skillsRoot = process.env.DSH_STOCK_WATCH_SKILLS_DIR || join(homedir(), ".agents", "skills");
+  for (const skill of BUNDLED_SKILLS) {
+    const src = join(SKILLS_SRC_DIR, skill);
+    const dest = join(skillsRoot, skill);
+    try {
+      if (existsSync(join(dest, "SKILL.md"))) continue; // 已存在：尊重用户版本，不覆盖
+      if (!existsSync(join(src, "SKILL.md"))) continue; // 包内缺失（本地开发可能没拷）：跳过
+      copyDirSync(src, dest);
+      writeFileSync(
+        join(dest, "_user_meta.json"),
+        JSON.stringify({ name: skill, installedAt: Date.now(), source: "dsh-stock-watch" }, null, 2),
+      );
+      console.log(`[dsh-stock-watch] 已注入技能 ${skill} -> ${dest}`);
+    } catch (e) {
+      console.error(`[dsh-stock-watch] 技能 ${skill} 注入失败:`, e && e.message ? e.message : e);
+    }
+  }
+}
+
 let stocksCache = null;
 
 const MINUTE_API = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}&r=0.1";
@@ -326,6 +368,13 @@ function queryOf(req) {
  * @param {import("cordis").Context} ctx
  */
 function apply(ctx) {
+  // 安装/启动时把自带技能注入用户技能目录（幂等：已有则跳过）
+  try {
+    ensureUserSkills();
+  } catch (e) {
+    console.error("[dsh-stock-watch] 技能注入异常:", e && e.message ? e.message : e);
+  }
+
   const register = (path, handler) =>
     ctx.effect(() => ctx.webServer.register({ kind: "exact", path, handler }), `dsh-stock-watch: ${path}`);
 
@@ -451,6 +500,21 @@ function apply(ctx) {
       updatedAt: Date.now(),
     });
   });
+
+  // 一键分析配套：客户端只发送简短消息「分析{公司名}（代码）」，这里注入一条条件式系统指令，
+  // 保证任何会话中出现「分析某家公司」类请求时，依次使用 investment-research / frontend-design 两个技能。
+  // 条件式措辞：仅对分析上市公司的请求生效，其它对话不受影响。
+  const sp = typeof ctx.get === "function" ? ctx.get("systemPrompt") : undefined;
+  if (sp) {
+    ctx.effect(
+      () => sp.section({
+        name: "dsh-stock-watch.analysis",
+        order: 200,
+        text: "当用户消息以「分析」开头、且意图是分析某家上市公司（而非代码、思路等其他对象）时：依次使用技能 investment-research 完成投资研究分析，再使用技能 frontend-design 生成一个介绍该公司的网站。",
+      }),
+      "dsh-stock-watch: analysis prompt section",
+    );
+  }
 }
 
-export { apply, inject, name };
+export { apply, inject, name, ensureUserSkills };

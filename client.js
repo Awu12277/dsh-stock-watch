@@ -74,6 +74,9 @@ window.__ModuleLoader__.load({
 .sk-detail-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sk-back{align-self:flex-start;background:transparent;border:1px solid var(--sk-border);color:var(--sk-muted);border-radius:6px;padding:2px 8px;cursor:pointer;font:inherit}
 .sk-back:hover{color:var(--sk-text);border-color:var(--sk-cyan-border)}
+.sk-analyze{background:var(--sk-cyan-soft);border:1px solid var(--sk-cyan-border);color:var(--sk-cyan);border-radius:6px;padding:2px 10px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
+.sk-analyze:hover{filter:brightness(1.15)}
+.sk-analyze:disabled{opacity:.55;cursor:wait;filter:none}
 .sk-detail-info{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .sk-detail-name{font-weight:700;font-size:13px}
 .sk-detail-price{font-weight:700;font-size:16px}
@@ -143,6 +146,9 @@ window.__ModuleLoader__.load({
     ];
     const POS_KEY = "stocking.pos.v1";
     const SIZE_KEY = "stocking.size.v1";
+    // 内置提示词（保持不变，规范原文；{name}/{code} 为占位符）。
+    // 实际发送使用简短消息「分析{name}（code）」；技能调用指令由 host 端注入的条件式系统提示保证。
+    const BUILTIN_ANALYZE_PROMPT = "使用技能 investment-research 分析下{name}（{code}）这家公司，再使用技能 frontend-design 生成一个网站";
     const PANEL_MIN_W = 320;
     const PANEL_MAX_W = 640;
     const PANEL_MIN_H = 240;
@@ -612,7 +618,11 @@ window.__ModuleLoader__.load({
     }
 
     // -------------------------------------------------------------- 主面板
-    function WatchPanel() {
+    function WatchPanel(props) {
+      // 槽位标准 props：useSessions / useWorkspaces 是 selector hook，传恒等选择器取整个快照
+      // （current = 当前打开的会话 id；workspaces.items 用于让新会话沿用当前工作区）
+      const sessions = (props && props.useSessions) ? props.useSessions((s) => s) : null;
+      const workspaces = (props && props.useWorkspaces) ? props.useWorkspaces((s) => s) : null;
       const [expanded, setExpanded] = useState(false);
       const [groupIndex, setGroupIndex] = useState(0);
       const [view, setView] = useState(null);
@@ -627,6 +637,9 @@ window.__ModuleLoader__.load({
       const [countdown, setCountdown] = useState(10);
       const [targetEdit, setTargetEdit] = useState(null);
       const [flashMsg, setFlashMsg] = useState(null);
+      // 一键分析防抖：进行中禁止重复点击（避免连点创建多个会话/重复扣费）
+      const [analyzing, setAnalyzing] = useState(false);
+      const analyzingRef = useRef(false);
       const dataRef = useRef(null);
       const flashTimerRef = useRef(null);
       const dragRef = useRef(null);
@@ -763,6 +776,66 @@ window.__ModuleLoader__.load({
           flashTimerRef.current = null;
         }, 2600);
       }, []);
+
+      // 一键分析：新建一个 DSH 对话，发送简短消息「分析{公司名}（代码）」。
+      // 完整技能指令（investment-research 分析 + frontend-design 生成网站）由 host 端
+      // 条件式系统提示注入，保证简短消息下两个技能仍然照用。
+      const analyzeStock = useCallback(async () => {
+        if (!view || !view.code) return;
+        // 防抖：上一次请求未结束则忽略本次点击
+        if (analyzingRef.current) return;
+        const row = (data && Array.isArray(data.rows)) ? data.rows.find((r) => r.code === view.code) : null;
+        // 名称做控制字符清洗（防上游字段被污染的提示注入面），空则退回代码
+        const rawName = ((row && row.name) || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+        const name = rawName || view.code;
+        const text = "分析" + name + "（" + view.code + "）";
+        const conn = (props && props.connection) || null;
+        const api = (conn && conn.api) || null;
+        const sessionsSvc = (props && props.sessionsService) || null;
+        if (!api || !sessionsSvc) {
+          flash("投资研究报告：会话服务不可用", YELLOW);
+          return;
+        }
+        analyzingRef.current = true;
+        setAnalyzing(true);
+        try {
+          // 1) 创建新会话：优先沿用当前会话所属 workspace；找不到则回退用当前会话的 cwd
+          const curId = sessions ? sessions.current : undefined;
+          const ws = (workspaces && Array.isArray(workspaces.items))
+            ? workspaces.items.find((w) => curId && Array.isArray(w.sessionIds) && w.sessionIds.indexOf(curId) >= 0)
+            : null;
+          let createPayload = {};
+          if (ws && ws.workspaceId) createPayload = { workspaceId: ws.workspaceId };
+          else {
+            const cur = (sessions && sessions.byId) ? sessions.byId[curId] : null;
+            if (cur && cur.cwd) createPayload = { cwd: cur.cwd };
+          }
+          const created = await api.sessions.create(createPayload);
+          if (!(created && created.result && created.result.ok)) throw new Error("创建新会话失败");
+          const sessionId = created.result.value && created.result.value.sessionId;
+          if (!sessionId) throw new Error("session.create 未返回 sessionId");
+          // 2) 向新会话发送提示词（排队执行）
+          const res = await api.sessions.prompt({
+            sessionId,
+            mode: "queue",
+            content: [{ type: "text", text }],
+          });
+          const accepted = !!(res && res.result && res.result.ok && res.result.value && res.result.value.accepted);
+          // 3) 跳到新对话；跳转失败如实提示（消息已发送，去会话列表查看）
+          let opened = true;
+          try { sessionsSvc.open(sessionId); } catch { opened = false; }
+          if (accepted) {
+            flash(opened ? "已在新对话发送分析请求 ✓" : "分析已发送 ✓ 未能自动跳转，请在会话列表查看", opened ? "#00ff41" : YELLOW);
+          } else {
+            flash("分析请求未被接受", YELLOW);
+          }
+        } catch (e) {
+          flash("投资研究报告失败：" + ((e && e.message) || "未知错误"), "#ff5252");
+        } finally {
+          analyzingRef.current = false;
+          setAnalyzing(false);
+        }
+      }, [view, data, sessions, workspaces, props]);
 
       // 目标价不可变更新 + 本地行同步（写入 localStorage 由持久化 effect 完成）
       const applyTarget = useCallback((code, type, price) => {
@@ -1176,6 +1249,7 @@ window.__ModuleLoader__.load({
           react.createElement("div", { className: "sk-detail-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
             react.createElement("div", { className: "sk-detail-top" },
               react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
+              react.createElement("button", { className: "sk-analyze", onClick: () => analyzeStock(), disabled: analyzing }, analyzing ? "📈 分析中…" : "📈 投资研究报告"),
               react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "最小化回胶囊" }, "—")),
             react.createElement("div", { className: "sk-detail-info" },
               react.createElement("span", { className: "sk-detail-name" }, row ? row.name : view.code),
@@ -1348,7 +1422,10 @@ window.__ModuleLoader__.load({
       ctx.slots.inject("shell.overlay", () => ctx.slots.register({
         name: "shell.overlay",
         id: "dsh-stock-watch",
-      }, WatchPanel));
+      }, (props) => react.createElement(WatchPanel, Object.assign({}, props, {
+        connection: ctx.get("connection"),
+        sessionsService: ctx.get("sessions"),
+      }))));
     }
 
     exports.apply = apply;
