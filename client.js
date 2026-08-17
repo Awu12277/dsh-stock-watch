@@ -34,6 +34,17 @@ window.__ModuleLoader__.load({
 .sk-dock-bottom{border-radius:26px 26px 0 0}
 .sk-dock-body{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.05}
 .sk-dock-count{font-size:10px;font-weight:700;white-space:nowrap}
+/* 胶囊悬浮扇形菜单：全屏透明层（不挡点击），选项本身可点；GSAP 驱动位移/缩放/透明度 */
+.sk-fan{position:fixed;inset:0;z-index:9998;pointer-events:none;visibility:hidden}
+.sk-fan-item{position:absolute;left:0;top:0;display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;background:var(--sk-pill-bg);border:1px solid var(--sk-cyan-border);color:var(--sk-text);font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.38);backdrop-filter:blur(8px);pointer-events:auto;white-space:nowrap;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,filter .18s ease}
+/* hover：青底着色 + 青色光晕；上浮/缩放由 GSAP 驱动（CSS 独立变换属性会被 GSAP 内联的 translate:none 覆盖） */
+.sk-fan-item:hover{background:var(--sk-cyan-soft);border-color:var(--sk-cyan);color:var(--sk-cyan);box-shadow:0 0 0 1px rgba(34,211,238,.22),0 10px 26px rgba(34,211,238,.22),0 4px 14px rgba(0,0,0,.35);filter:brightness(1.08)}
+.sk-fan-item:active{filter:brightness(.92)}
+.sk-fan-item:focus-visible{outline:2px solid var(--sk-cyan);outline-offset:2px}
+.sk-fan-item-disabled,.sk-fan-item-disabled:hover{opacity:.4;border-color:var(--sk-border);color:var(--sk-muted);background:transparent;cursor:not-allowed;filter:none;box-shadow:0 6px 22px rgba(0,0,0,.38)}
+.sk-fan-icon{font-size:13px}
+/* 折叠态反馈 toast */
+.sk-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--sk-pill-bg);border:1px solid var(--sk-border);border-radius:8px;padding:6px 14px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;box-shadow:0 6px 22px rgba(0,0,0,.38);pointer-events:none;white-space:nowrap}
 .sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:var(--sk-panel-bg);border:1px solid var(--sk-border);color:var(--sk-text);box-shadow:var(--sk-shadow);backdrop-filter:blur(10px);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;pointer-events:auto}
 .sk-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--sk-border-soft)}
 .sk-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
@@ -240,6 +251,90 @@ window.__ModuleLoader__.load({
       });
       lwcPromise = p;
       return p;
+    }
+
+    // ----------------------------------------------- GSAP 懒加载（胶囊扇形菜单动画）
+    let gsapPromise = null;
+    function loadGsap() {
+      if (gsapPromise) return gsapPromise;
+      const p = new Promise((resolve) => {
+        let settled = false;
+        const finish = (lib) => {
+          if (settled) return;
+          settled = true;
+          if (!lib) gsapPromise = null;
+          resolve(lib);
+        };
+        try {
+          const existing = window.gsap;
+          if (existing) { finish(existing); return; }
+          const sources = [
+            "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
+            "https://unpkg.com/gsap@3.12.5/dist/gsap.min.js",
+          ];
+          let idx = 0;
+          const inject = () => {
+            if (idx >= sources.length) { finish(null); return; }
+            const s = document.createElement("script");
+            s.src = sources[idx];
+            s.async = true;
+            s.onload = () => {
+              if (window.gsap) finish(window.gsap);
+              else { idx += 1; inject(); }
+            };
+            s.onerror = () => { idx += 1; inject(); };
+            document.head.appendChild(s);
+          };
+          inject();
+          setTimeout(() => finish(null), 9000);
+        } catch {
+          finish(null);
+        }
+      });
+      gsapPromise = p;
+      return p;
+    }
+
+    // ----------------------------------------------- 扇形菜单几何
+    // 按胶囊中心相对屏幕的位置选择展开象限（优先空间大的一侧），半径按可用空间钳制，保证不越出屏幕。
+    // 角度 0°=右、90°=下（屏幕坐标系 y 向下）；3 个选项围绕象限对角方向 ±35° 展开。
+    function fanGeometry(pos, pillW, pillH) {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const cx = pos ? pos.x + pillW / 2 : vw - PILL_W / 2 - 16;
+      const cy = pos ? pos.y + pillH / 2 : 14 + pillH / 2;
+      const left = cx;
+      const right = vw - cx;
+      const top = cy;
+      const bottom = vh - cy;
+      const hDir = right >= left ? 1 : -1; // 1=向右展开，-1=向左
+      const vDir = bottom >= top ? 1 : -1; // 1=向下展开，-1=向上
+      const hSpace = hDir === 1 ? right : left;
+      const vSpace = vDir === 1 ? bottom : top;
+      let base = 0;
+      if (hDir === 1 && vDir === 1) base = 45;
+      else if (hDir === 1 && vDir === -1) base = -45;
+      else if (hDir === -1 && vDir === 1) base = 135;
+      else base = 225;
+      const R = Math.max(44, Math.min(128, hSpace - 40, vSpace - 40));
+      // 选项估算半宽/半高，用于逐项屏幕边界钳制（贴边时接近水平/垂直方向的选项不会推出屏外）
+      const HALF_W = 48;
+      const HALF_H = 18;
+      const EDGE = 6;
+      return {
+        cx,
+        cy,
+        hDir,
+        vDir,
+        items: [base - 35, base, base + 35].map((a) => {
+          const rad = (a * Math.PI) / 180;
+          let x = cx + Math.cos(rad) * R;
+          let y = cy + Math.sin(rad) * R;
+          x = Math.min(vw - HALF_W - EDGE, Math.max(HALF_W + EDGE, x));
+          y = Math.min(vh - HALF_H - EDGE, Math.max(HALF_H + EDGE, y));
+          return { dx: x - cx, dy: y - cy, angle: a };
+        }),
+      };
     }
 
     // -------------------------------------------------------------- 分时迷你折线（列表行）
@@ -640,9 +735,16 @@ window.__ModuleLoader__.load({
       // 一键分析防抖：进行中禁止重复点击（避免连点创建多个会话/重复扣费）
       const [analyzing, setAnalyzing] = useState(false);
       const analyzingRef = useRef(false);
+      // 胶囊悬浮扇形菜单（行情分析 / 每日复盘 / 涨停分析，功能暂未实现）
+      const [fanOpen, setFanOpen] = useState(false);
+      const fanOpenRef = useRef(false);
+      const fanBoxRef = useRef(null);
+      const gsapLibRef = useRef(null);
+      const fanTimerRef = useRef(null);
       const dataRef = useRef(null);
       const flashTimerRef = useRef(null);
       const dragRef = useRef(null);
+      const lastMousePosRef = useRef(null);
       const suppressClickRef = useRef(false);
       const pillRef = useRef(null);
       const pillWidthRef = useRef(PILL_W);
@@ -777,23 +879,16 @@ window.__ModuleLoader__.load({
         }, 2600);
       }, []);
 
-      // 一键分析：新建一个 DSH 对话，发送简短消息「分析{公司名}（代码）」。
-      // 完整技能指令（investment-research 分析 + frontend-design 生成网站）由 host 端
-      // 条件式系统提示注入，保证简短消息下两个技能仍然照用。
-      const analyzeStock = useCallback(async () => {
-        if (!view || !view.code) return;
+      // 通用「新开对话发送分析请求」：创建新会话 → 发送简短消息 → 跳到新对话。
+      // 完整提示词由 host 端条件式系统提示注入（消息本身保持简短，不暴露完整提示词）。
+      const sendAnalysis = useCallback(async (text, label) => {
         // 防抖：上一次请求未结束则忽略本次点击
         if (analyzingRef.current) return;
-        const row = (data && Array.isArray(data.rows)) ? data.rows.find((r) => r.code === view.code) : null;
-        // 名称做控制字符清洗（防上游字段被污染的提示注入面），空则退回代码
-        const rawName = ((row && row.name) || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
-        const name = rawName || view.code;
-        const text = "分析" + name + "（" + view.code + "）";
         const conn = (props && props.connection) || null;
         const api = (conn && conn.api) || null;
         const sessionsSvc = (props && props.sessionsService) || null;
         if (!api || !sessionsSvc) {
-          flash("投资研究报告：会话服务不可用", YELLOW);
+          flash((label || "分析") + "：会话服务不可用", YELLOW);
           return;
         }
         analyzingRef.current = true;
@@ -825,17 +920,28 @@ window.__ModuleLoader__.load({
           let opened = true;
           try { sessionsSvc.open(sessionId); } catch { opened = false; }
           if (accepted) {
-            flash(opened ? "已在新对话发送分析请求 ✓" : "分析已发送 ✓ 未能自动跳转，请在会话列表查看", opened ? "#00ff41" : YELLOW);
+            flash(opened ? "已在新对话发送「" + label + "」✓" : "「" + label + "」已发送 ✓ 未能自动跳转，请在会话列表查看", opened ? "#00ff41" : YELLOW);
           } else {
-            flash("分析请求未被接受", YELLOW);
+            flash("「" + label + "」请求未被接受", YELLOW);
           }
         } catch (e) {
-          flash("投资研究报告失败：" + ((e && e.message) || "未知错误"), "#ff5252");
+          flash((label || "分析") + "失败：" + ((e && e.message) || "未知错误"), "#ff5252");
         } finally {
           analyzingRef.current = false;
           setAnalyzing(false);
         }
-      }, [view, data, sessions, workspaces, props]);
+      }, [sessions, workspaces, props]);
+
+      // 一键投资研究报告：新开对话发送「分析{公司名}（代码）」，
+      // 完整技能指令（investment-research 分析 + frontend-design 生成网站）由 host 端条件式系统提示注入。
+      const analyzeStock = useCallback(async () => {
+        if (!view || !view.code) return;
+        const row = (data && Array.isArray(data.rows)) ? data.rows.find((r) => r.code === view.code) : null;
+        // 名称做控制字符清洗（防上游字段被污染的提示注入面），空则退回代码
+        const rawName = ((row && row.name) || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+        const name = rawName || view.code;
+        await sendAnalysis("分析" + name + "（" + view.code + "）", "投资研究报告");
+      }, [view, data, sendAnalysis]);
 
       // 目标价不可变更新 + 本地行同步（写入 localStorage 由持久化 effect 完成）
       const applyTarget = useCallback((code, type, price) => {
@@ -902,6 +1008,180 @@ window.__ModuleLoader__.load({
         return () => { alive = false; };
       }, [expanded, lwc]);
 
+      // 挂载即预加载 GSAP（胶囊悬浮扇形动画）
+      useEffect(() => {
+        let alive = true;
+        loadGsap().then((g) => { if (alive) gsapLibRef.current = g; });
+        return () => { alive = false; };
+      }, []);
+
+      // 扇形菜单开合控制（悬浮胶囊打开；移开延迟关闭，允许滑到选项上；拖动/展开时立即关闭）
+      const cancelFanClose = useCallback(() => {
+        if (fanTimerRef.current) { clearTimeout(fanTimerRef.current); fanTimerRef.current = null; }
+      }, []);
+      const openFan = useCallback(() => {
+        cancelFanClose();
+        setFanOpen(true);
+      }, [cancelFanClose]);
+      const scheduleFanClose = useCallback(() => {
+        if (fanTimerRef.current) clearTimeout(fanTimerRef.current);
+        fanTimerRef.current = setTimeout(() => setFanOpen(false), 380);
+      }, []);
+      const closeFanNow = useCallback(() => {
+        cancelFanClose();
+        setFanOpen(false);
+      }, [cancelFanClose]);
+      // 拖动/吸附结束后重置扇形归位：清除中断动画留下的冻结中间态（选项透明度/位移/盒子可见性），
+      // 恢复到初始闭合状态，保证下次悬浮能正常重新展开动画。
+      const resetFan = useCallback(() => {
+        cancelFanClose();
+        setFanOpen(false);
+        fanOpenRef.current = false; // 强制下一次 effect 视为"未展开"，重新走开启动画
+        const box = fanBoxRef.current;
+        if (!box) return;
+        const items = Array.from(box.querySelectorAll(".sk-fan-item"));
+        const g = gsapLibRef.current;
+        if (g && items.length) {
+          g.set(items, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 0.3, autoAlpha: 0, rotation: -8, clearProps: "left,top" });
+        } else {
+          for (const el of items) { el.style.opacity = "0"; }
+        }
+        box.style.visibility = "hidden";
+        box.style.pointerEvents = "none";
+      }, [cancelFanClose]);
+      // 组件卸载时清理延迟关闭定时器
+      useEffect(() => () => {
+        if (fanTimerRef.current) clearTimeout(fanTimerRef.current);
+      }, []);
+
+      // 扇形菜单动作：新开对话发送简短关键词（完整提示词由 host 注入；closeFanNow 已在上方声明）
+      const fanAction = useCallback((kind) => {
+        const entry = kind === "quote"
+          ? { text: "行情分析", label: "行情分析" }
+          : kind === "review"
+            ? { text: "每日复盘", label: "每日复盘" }
+            : { text: "涨停分析", label: "涨停分析" };
+        closeFanNow();
+        sendAnalysis(entry.text, entry.label);
+      }, [closeFanNow, sendAnalysis]);
+
+      // 扇形选项 hover：GSAP 上浮 + 微放大（CSS 独立变换属性会被 GSAP 内联 translate:none 覆盖，故走 GSAP）
+      const hoverFanItem = useCallback((el, on) => {
+        const g = gsapLibRef.current;
+        if (!g || !el) return;
+        if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        g.to(el, { y: on ? "-=2.5" : "+=2.5", scale: on ? 1.05 : 1, duration: 0.18, ease: "power2.out", overwrite: "auto" });
+      }, []);
+
+      // 扇形菜单动画：打开时从胶囊中心扇形展开（GSAP back.out + 交错），关闭时收回
+      useEffect(() => {
+        if (expanded) return undefined;
+        const box = fanBoxRef.current;
+        if (!box) return undefined;
+        const items = Array.from(box.querySelectorAll(".sk-fan-item"));
+        if (items.length === 0) return undefined;
+        const wasOpen = fanOpenRef.current;
+        fanOpenRef.current = fanOpen;
+        if (!fanOpen && !wasOpen) { box.style.visibility = "hidden"; return undefined; }
+        const pill = pillRef.current;
+        const pw = pill ? pill.offsetWidth : PILL_W;
+        const ph = pill ? pill.offsetHeight : 30;
+        const geo = fanGeometry(pos, pw, ph);
+        const gsap = gsapLibRef.current;
+        const reduceMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        // 展开扇形区域（悬浮热区）：覆盖「胶囊朝向扇形的那条边 → 选项 + 边距」。
+        // 返回区域左上角视口坐标，供选项绝对定位换算（容器已从全屏缩为区域）。
+        const applyFanRegion = () => {
+          const pr = pill ? pill.getBoundingClientRect() : { left: geo.cx, right: geo.cx, top: geo.cy, bottom: geo.cy };
+          const M = 36, HW = 56, HH = 24; // 热区边距加大：贴边/曲线移动/短暂停顿不易出区
+          let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+          for (const it of geo.items) {
+            x1 = Math.min(x1, geo.cx + it.dx - HW);
+            y1 = Math.min(y1, geo.cy + it.dy - HH);
+            x2 = Math.max(x2, geo.cx + it.dx + HW);
+            y2 = Math.max(y2, geo.cy + it.dy + HH);
+          }
+          const feX = geo.hDir === 1 ? pr.left : pr.right;
+          const feY = geo.vDir === 1 ? pr.top : pr.bottom;
+          x1 = Math.min(x1, feX) - M;
+          x2 = Math.max(x2, feX) + M;
+          y1 = Math.min(y1, feY) - M;
+          y2 = Math.max(y2, feY) + M;
+          box.style.left = x1 + "px";
+          box.style.top = y1 + "px";
+          box.style.width = (x2 - x1) + "px";
+          box.style.height = (y2 - y1) + "px";
+          box.style.pointerEvents = "auto";
+          return { x1, y1 };
+        };
+        if (fanOpen && wasOpen) {
+          // 已展开中：位置/尺寸变化时仅跟随刷新热区（不重播入场动画），避免胶囊移动后热区失配
+          applyFanRegion();
+          return undefined;
+        }
+        if (!fanOpen) {
+          // 关闭：收回胶囊中心
+          box.style.pointerEvents = "none";
+          if (gsap && !reduceMotion) {
+            const tl = gsap.timeline({ onComplete: () => { box.style.visibility = "hidden"; } });
+            tl.to(items, {
+              x: 0, y: 0, scale: 0.3, autoAlpha: 0, rotation: -8,
+              duration: 0.22, ease: "power2.in", stagger: 0.03, overwrite: "auto",
+            });
+            return () => { tl.kill(); };
+          }
+          box.style.visibility = "hidden";
+          return undefined;
+        }
+        // 打开：选项先叠在胶囊中心，再交错扇形展开（left/top 为相对容器的坐标）
+        if (gsap && !reduceMotion) {
+          box.style.visibility = "visible";
+          const { x1, y1 } = applyFanRegion();
+          gsap.set(items, { xPercent: -50, yPercent: -50, left: geo.cx - x1, top: geo.cy - y1, rotation: -10, scale: 0.35, autoAlpha: 0, x: 0, y: 0 });
+          const tl = gsap.timeline({
+            onComplete: () => {
+              // 动画结束后按禁用态补一次变暗（CSS opacity 会被 GSAP 内联 opacity:1 覆盖）
+              for (const el of items) {
+                if (el.classList.contains("sk-fan-item-disabled")) gsap.set(el, { opacity: 0.4 });
+              }
+            },
+          });
+          geo.items.forEach((it, i) => {
+            tl.to(items[i], {
+              x: it.dx, y: it.dy, scale: 1, autoAlpha: 1, rotation: 0,
+              duration: 0.5, ease: "back.out(1.7)",
+            }, i * 0.06);
+          });
+          return () => { tl.kill(); };
+        }
+        // 兜底（无 GSAP 或用户偏好减少动态）：直接落位
+        box.style.visibility = "visible";
+        const origin = applyFanRegion();
+        items.forEach((el, i) => {
+          const it = geo.items[i] || { dx: 0, dy: 0 };
+          el.style.left = (geo.cx - origin.x1) + "px";
+          el.style.top = (geo.cy - origin.y1) + "px";
+          el.style.transform = "translate(" + it.dx + "px, " + it.dy + "px) translate(-50%, -50%) scale(1)";
+          el.style.opacity = el.classList.contains("sk-fan-item-disabled") ? "0.4" : "1";
+        });
+        return undefined;
+      }, [fanOpen, expanded, pos]);
+
+      // 悬浮热区：扇形打开期间，指针在胶囊或扇形区域内就不收起（含胶囊与选项之间的空隙），
+      // 移出区域才延迟收拢。用全局 mousemove 包含性判断，避免「先经过区域再到胶囊」漏掉取消。
+      useEffect(() => {
+        if (!fanOpen || expanded) return undefined;
+        const within = (x, y, r) => r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+        const onMove = (e) => {
+          const inPill = within(e.clientX, e.clientY, pillRef.current ? pillRef.current.getBoundingClientRect() : null);
+          const inFan = within(e.clientX, e.clientY, fanBoxRef.current ? fanBoxRef.current.getBoundingClientRect() : null);
+          if (inPill || inFan) cancelFanClose();
+          else scheduleFanClose();
+        };
+        window.addEventListener("mousemove", onMove);
+        return () => window.removeEventListener("mousemove", onMove);
+      }, [fanOpen, expanded, cancelFanClose, scheduleFanClose]);
+
       // 展开：每 10s 拉行情（含分时）；折叠：每 30s 轻量拉取
       useEffect(() => {
         if (expanded) {
@@ -947,6 +1227,7 @@ window.__ModuleLoader__.load({
       // —— 拖拽：窗口级 mousemove/mouseup ——
       useEffect(() => {
         const onMove = (e) => {
+          lastMousePosRef.current = { x: e.clientX, y: e.clientY };
           const d = dragRef.current;
           if (!d) return;
           const dx = e.clientX - d.startX;
@@ -978,6 +1259,18 @@ window.__ModuleLoader__.load({
           dragRef.current = null;
           // 只有真正拖动过（moved）才抑制随后的 click；普通点击不抑制 → 正常展开
           if (d && d.mode === "pill" && d.moved) suppressClickRef.current = true;
+          // 胶囊拖动/吸附结束：重置扇形归位（清掉被中断动画冻结的中间态）；
+          // 若鼠标仍停在胶囊上，则立即重新展开，方便直接点选项（延迟到 React 提交新位置后再判断）
+          if (d && d.mode === "pill") {
+            resetFan();
+            setTimeout(() => {
+              const pr = pillRef.current ? pillRef.current.getBoundingClientRect() : null;
+              const mp = lastMousePosRef.current;
+              if (pr && mp && mp.x >= pr.left && mp.x <= pr.right && mp.y >= pr.top && mp.y <= pr.bottom) {
+                openFan();
+              }
+            }, 0);
+          }
         };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
@@ -1177,21 +1470,59 @@ window.__ModuleLoader__.load({
               : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…"))
           : null;
         if (pillRef.current) pillWidthRef.current = pillRef.current.offsetWidth || PILL_W;
-        return react.createElement("div", {
+        const pill = react.createElement("div", {
           className: "sk-pill sk-theme-" + theme + (dock ? " sk-dock sk-dock-" + dock : ""),
           ref: pillRef,
           style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
-          onMouseDown: (e) => startDrag(e, "pill"),
+          onMouseDown: (e) => { startDrag(e, "pill"); closeFanNow(); },
+          onMouseEnter: openFan,
           onClick: () => {
             if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+            closeFanNow();
             setExpanded(true);
           },
-          title: "展开自选股盯盘（按住可拖动，拖到屏幕边缘可吸附）",
         },
           dock ? dockBody : [
             react.createElement("span", { key: "t", className: "sk-pill-title" }, "📈 自选股"),
             summary,
           ]);
+        // 悬浮扇形菜单（行情分析 / 每日复盘 / 涨停分析；功能暂未实现，仅展示）
+        // 每日复盘时段：仅 15:00–次日 9:00 可点击（复盘需当日收盘后数据）；9:00–15:00 交易时段置灰
+        const reviewState = (() => {
+          const now = new Date();
+          const mins = now.getHours() * 60 + now.getMinutes();
+          if (mins >= 9 * 60 && mins < 15 * 60) {
+            return { disabled: true, tip: "还未收盘，15:00 收盘后可查看每日复盘" };
+          }
+          return { disabled: false, tip: "查看每日复盘" };
+        })();
+        const fan = react.createElement("div", {
+          className: "sk-fan sk-theme-" + theme,
+          ref: fanBoxRef,
+        },
+          ["quote", "review", "limit"].map((k) => {
+            const meta = k === "quote"
+              ? { icon: "📊", label: "行情分析" }
+              : k === "review"
+                ? { icon: "📅", label: "每日复盘" }
+                : { icon: "🚀", label: "涨停分析" };
+            const reviewDisabled = k === "review" && reviewState.disabled;
+            return react.createElement("button", {
+              key: k,
+              className: "sk-fan-item" + (reviewDisabled ? " sk-fan-item-disabled" : ""),
+              title: k === "review" ? reviewState.tip : "「" + meta.label + "」点击后新开对话分析",
+              onMouseEnter: (e) => { cancelFanClose(); if (!reviewDisabled) hoverFanItem(e.currentTarget, true); },
+              onMouseLeave: (e) => { if (!reviewDisabled) hoverFanItem(e.currentTarget, false); },
+              onClick: () => { if (reviewDisabled) return; fanAction(k); },
+            },
+              react.createElement("span", { className: "sk-fan-icon" }, meta.icon),
+              react.createElement("span", null, meta.label));
+          }));
+        // 折叠态反馈 toast（建会话/发送结果提示）
+        const toast = flashMsg
+          ? react.createElement("div", { className: "sk-toast sk-theme-" + theme, style: { color: flashMsg.color } }, flashMsg.text)
+          : null;
+        return react.createElement(react.Fragment, null, pill, fan, toast);
       }
 
       // —— 详情视图 ——
