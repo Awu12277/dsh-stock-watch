@@ -22,6 +22,7 @@ const inject = ["webServer"];
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const STOCKS_PATH = join(MODULE_DIR, "data", "a_stocks.json");
+const HK_STOCKS_PATH = join(MODULE_DIR, "data", "hk_stocks.json");
 const SKILLS_SRC_DIR = join(MODULE_DIR, "skills");
 /** 安装时注入到用户技能目录的技能（与「一键分析」提示词引用的技能保持一致）。 */
 const BUNDLED_SKILLS = ["investment-research", "frontend-design"];
@@ -216,10 +217,47 @@ async function loadGroups() {
 // ---------------------------------------------------------------------------
 
 function normalizeApiCode(code) {
-  if (code.startsWith("sh") || code.startsWith("sz")) return code;
+  // 已带市场前缀（A股 sh/sz、港股 hk、美股 us）→ 原样返回
+  if (/^(sh|sz|hk|us)/i.test(code)) return code;
   if (/^(60|68|51)/.test(code)) return "sh" + code;
   if (/^(00|30|39)/.test(code)) return "sz" + code;
   return "sh" + code;
+}
+
+/** 腾讯 smartbox 搜索（港股/美股等），仅保留正股（GP）结果；返回 [{code, name}] */
+const SMARTBOX_API = "https://smartbox.gtimg.cn/s3/?v=2&q={q}&t=all";
+async function fetchSmartbox(needle) {
+  try {
+    const res = await fetch(SMARTBOX_API.replace("{q}", encodeURIComponent(needle)), { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+    const buf = new Uint8Array(await res.arrayBuffer());
+    let text;
+    try {
+      text = new TextDecoder("gbk").decode(buf);
+    } catch {
+      text = new TextDecoder("utf-8").decode(buf);
+    }
+    // 腾讯接口返回字面 \uXXXX 转义，需还原成中文
+    const unescaped = text.replace(/\\u([0-9a-fA-F]{4})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)));
+    const m = unescaped.match(/v_hint="([^"]*)"/);
+    if (!m) return [];
+    const rows = [];
+    for (const part of m[1].split("^")) {
+      const f = part.split("~");
+      if (f.length < 5) continue;
+      const market = f[0].toLowerCase();
+      const code = f[1];
+      const name = f[2];
+      const type = f[4];
+      // 只保留港股正股（GP），过滤窝轮/牛熊证（QZ）等衍生品（美股暂不考虑）
+      if (market === "hk" && type === "GP" && code) {
+        rows.push({ code: market + code, name });
+      }
+    }
+    return rows;
+  } catch {
+    return [];
+  }
 }
 
 /** 股票池：data/a_stocks.json（全 A 股 {code, name}，惰性加载并缓存；兼容 BOM） */
@@ -234,6 +272,21 @@ async function loadStocks() {
     stocksCache = [];
   }
   return stocksCache;
+}
+
+/** 港股池：data/hk_stocks.json（{code: "hk01810", name}，惰性加载并缓存） */
+let hkStocksCache = null;
+async function loadHkStocks() {
+  if (hkStocksCache) return hkStocksCache;
+  try {
+    const text = await readFile(HK_STOCKS_PATH, "utf8");
+    const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const parsed = JSON.parse(clean);
+    hkStocksCache = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    hkStocksCache = [];
+  }
+  return hkStocksCache;
 }
 
 async function fetchJson(url) {
@@ -425,7 +478,7 @@ function apply(ctx) {
     sendJson(res, 200, { groups: loaded.groups, source: loaded.source, path: loaded.path });
   });
 
-  // 添加股票搜索：按代码或名称匹配全 A 股池，返回带市场前缀的代码
+  // 添加股票搜索：A 股本地池 + 港股本地池 + 腾讯 smartbox 港股补充，返回带市场前缀的代码
   register("/dsh-stock-watch/stocks", async (req, res) => {
     const needle = (queryOf(req).get("q") ?? "").trim();
     if (!needle) {
@@ -433,11 +486,28 @@ function apply(ctx) {
       return;
     }
     const lower = needle.toLowerCase();
-    const list = await loadStocks();
     const rows = [];
-    for (const s of list) {
+    const seen = new Set();
+    const pushMatch = (s) => {
       if (s.code.includes(lower) || (s.name && s.name.toLowerCase().includes(lower))) {
-        rows.push({ code: normalizeApiCode(s.code), name: s.name });
+        const code = normalizeApiCode(s.code);
+        if (seen.has(code)) return;
+        seen.add(code);
+        rows.push({ code, name: s.name });
+      }
+    };
+    const [alist, hklist] = await Promise.all([loadStocks(), loadHkStocks()]);
+    for (const s of alist) { pushMatch(s); if (rows.length >= 50) break; }
+    if (rows.length < 50) {
+      for (const s of hklist) { pushMatch(s); if (rows.length >= 50) break; }
+    }
+    // 仍不足 50 条时，联调 smartbox 补充港股正股
+    if (rows.length < 50) {
+      const smart = await fetchSmartbox(needle);
+      for (const s of smart) {
+        if (seen.has(s.code)) continue;
+        seen.add(s.code);
+        rows.push(s);
         if (rows.length >= 50) break;
       }
     }

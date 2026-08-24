@@ -64,3 +64,18 @@ for (const q of ["平安", "000001", "茅台", "zzzz"]) {
   const sj = JSON.parse(s.body);
   console.log("\n[STOCKS q=" + q + "] status=" + s.status + " total=" + sj.total + " sample=" + JSON.stringify(sj.rows.slice(0, 3)));
 }
+
+// 港股：本地池搜索 + 行情 + K 线（与 A 股同源接口）
+const hks = await call("/dsh-stock-watch/stocks", "q=" + encodeURIComponent("小米"));
+const hksj = JSON.parse(hks.body);
+console.log("\n[HK STOCKS q=小米] total=" + hksj.total + " sample=" + JSON.stringify(hksj.rows.slice(0, 3)));
+const xm = hksj.rows.find((r) => r.code === "hk01810");
+console.log("[HK STOCKS] 找到 hk01810:", !!xm, xm ? xm.name : "");
+
+const hkg = JSON.stringify([{ name: "港", symbols: [{ code: "hk01810" }] }]);
+const hkq = JSON.parse((await call("/dsh-stock-watch/quotes", "group=0&minutes=0&groups=" + encodeURIComponent(hkg))).body);
+const hkRow = hkq.rows && hkq.rows[0];
+console.log("[HK QUOTES] live=" + (hkRow && hkRow.live) + " name=" + (hkRow && hkRow.name) + " price=" + (hkRow && hkRow.price) + " chg=" + (hkRow && hkRow.changePercent) + "%");
+
+const hkk = JSON.parse((await call("/dsh-stock-watch/kline", "code=hk01810&period=day")).body);
+console.log("[HK KLINE] candles=" + (hkk.candles ? hkk.candles.length : 0) + " error=" + hkk.error + " last=" + JSON.stringify(hkk.candles && hkk.candles[hkk.candles.length - 1]));

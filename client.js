@@ -1667,7 +1667,7 @@ window.__ModuleLoader__.load({
               return react.createElement("div", { key: row.code, className: "sk-row", onClick: () => setView({ code: row.code }), title: tip },
                 react.createElement("span", { className: "sk-name" },
                   react.createElement("span", { className: "sk-name-text", style: { color: row.live ? "var(--sk-text)" : FLAT } }, row.name),
-                  react.createElement("span", { className: "sk-code" }, row.code.replace(/^(sh|sz)/, ""))),
+                  react.createElement("span", { className: "sk-code" }, row.code.replace(/^(sh|sz|hk|us)/, ""))),
                 react.createElement(Sparkline, { prices: row.minutes, color }),
                 react.createElement("span", { className: "sk-price", style: { color } }, row.live ? formatPrice(row.price) : "--"),
                 react.createElement("span", { className: "sk-chg", style: { color } }, row.live ? ((row.changePercent >= 0 ? "+" : "") + row.changePercent.toFixed(2) + "%") : ""),
@@ -1718,7 +1718,7 @@ window.__ModuleLoader__.load({
                         className: "sk-add-result" + (inCurrent ? " sk-add-result-added" : ""),
                         onClick: () => addStock(s.code, s.name),
                       },
-                        react.createElement("span", { className: "sk-add-result-code" }, s.code.replace(/^(sh|sz)/, "")),
+                        react.createElement("span", { className: "sk-add-result-code" }, s.code.replace(/^(sh|sz|hk|us)/, "")),
                         react.createElement("span", { className: "sk-add-result-name" }, s.name),
                         inCurrent ? react.createElement("span", { className: "sk-add-result-badge" }, "已添加") : null);
                     }))),
