@@ -119,7 +119,8 @@ window.__ModuleLoader__.load({
 .sk-ma-chip:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
 .sk-ma-chip-off{opacity:.35;text-decoration:line-through}
 .sk-ma-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
-.sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--sk-panel-bg);display:flex;flex-direction:column;padding:10px}
+.sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--sk-panel-bg);display:flex;flex-direction:column;padding:10px;min-height:0}
+.sk-add-panel{display:flex;flex-direction:column;flex:1;min-height:0}
 .sk-add-bar{display:flex;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft)}
 .sk-add-bar-btn{flex:1;background:transparent;border:1px dashed var(--sk-border);color:var(--sk-dim);border-radius:8px;padding:6px;cursor:pointer;font:inherit}
 .sk-add-bar-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}

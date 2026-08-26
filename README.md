@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-stock-watch
 - **右上角可折叠弹窗**：折叠时显示自选股实时涨跌家数药丸；展开为完整列表，点击任意行进入详情
 - **胶囊可拖动**：按住「📈 自选股」药丸可拖到屏幕任意位置，面板随之跟随（右边缘对齐）；展开后按住面板头部也可拖动；位置持久化到 localStorage。**拖到屏幕四边自动吸附**，贴边后胶囊变为**半球**（屏幕边缘显示涨/跌家数，如 `3↑0↓`），点击仍可展开面板
 - **多分组自选股**：分组 tab 切换（分组名 + 股票数），配置存浏览器 `localStorage`（首次自动从 `~/.stocking/settings.json` 迁移）
-- **A 股 + 港股双市场**：添加股票搜索支持 **A 股（本地全 A 池 5549 只）与港股（本地池 2791 只 + 腾讯 smartbox 补充正股）**，搜索「小米」「01810」即可找到 `hk01810 小米集团-W` 并加入分组；港股行情 / 分时 / K 线走与 A 股同源的腾讯接口（`hk01810` 格式），代码显示自动剥市场前缀；美股暂不支持
+- **A 股 + 港股 + ETF 三市场**：添加股票搜索支持 **A 股（本地全 A 池 5549 只）、港股（本地池 2791 只 + 腾讯 smartbox 补充正股）、ETF（本地池 1650 只场内基金，含沪深300ETF、恒生科技ETF、货币ETF、黄金ETF 等）**；搜索「小米」「01810」→ 港股 `hk01810`；搜索「510300」「沪深300ETF」→ 沪市 ETF；港股/ETF 与 A 股走同源腾讯接口，代码显示自动剥市场前缀；smartbox 同时支持港股 GP 正股与全市场 ETF
 - **实时行情列表**：名称 / 代码、现价、涨跌幅、分时迷你折线、目标价触发标记（买入 / 卖出 / 等待 / -），每 10s 自动刷新（带倒计时）
 - **分时视图**：全天分钟价格线（红涨绿跌）+ 黄色均价线（VWAP）+ 昨收虚线基准，时间轴按 **A 股交易时段（北京时间 09:30–11:30 / 13:00–15:00）** 标注，午间休市留白
 - **K 线视图**：日 K / 周 K / 月 K 前复权蜡烛图 + 成交量柱 + **MA 均线（MA5 白 / MA10 黄 / MA20 紫 / MA60 绿，A 股配色，右上角可自定义隐藏/显示，配置存 localStorage）**，支持 **`+ / − / 重置` 按钮缩放 K 线**（位于 MA 均线配置左侧），基于 [TradingView Lightweight Charts](https://tradingview.github.io/lightweight-charts/docs)（CDN 懒加载，失败自动降级为自绘 SVG）
@@ -92,7 +92,7 @@ dsh-stock-watch/
 ├── client.js          # 浏览器端客户端模块（__ModuleLoader__ + shell.overlay 槽位）
 ├── cordis.patch.yml   # 组合补丁：插入 host 插件行（dsh.bundle.patch）
 ├── package.json       # dsh.bundle + dsh.client 声明
-├── data/              # 股票池：全 A 股 a_stocks.json（5549 只）+ 港股 hk_stocks.json（2791 只）
+├── data/              # 股票池：全 A 股 a_stocks.json（5549 只）+ 港股 hk_stocks.json（2791 只）+ ETF etf_stocks.json（1650 只）
 ├── skills/            # 随包技能（investment-research / frontend-design，启动时注入用户技能目录）
 ├── scripts/           # 本地测试脚本（smoke / probe / skills 注入验证）
 ├── screenshots/       # 运行截图

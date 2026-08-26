@@ -79,3 +79,18 @@ console.log("[HK QUOTES] live=" + (hkRow && hkRow.live) + " name=" + (hkRow && h
 
 const hkk = JSON.parse((await call("/dsh-stock-watch/kline", "code=hk01810&period=day")).body);
 console.log("[HK KLINE] candles=" + (hkk.candles ? hkk.candles.length : 0) + " error=" + hkk.error + " last=" + JSON.stringify(hkk.candles && hkk.candles[hkk.candles.length - 1]));
+
+// ETF（场内基金）：本地池搜索 + 行情 + K 线（与 A 股同源接口）
+const etfs = await call("/dsh-stock-watch/stocks", "q=" + encodeURIComponent("510300"));
+const etfsj = JSON.parse(etfs.body);
+console.log("\n[ETF STOCKS q=510300] total=" + etfsj.total + " sample=" + JSON.stringify(etfsj.rows.slice(0, 3)));
+const etf510 = etfsj.rows.find((r) => r.code === "sh510300");
+console.log("[ETF STOCKS] 找到 sh510300:", !!etf510, etf510 ? etf510.name : "");
+
+const etfg = JSON.stringify([{ name: "基金", symbols: [{ code: "sh510300" }] }]);
+const etfq = JSON.parse((await call("/dsh-stock-watch/quotes", "group=0&minutes=0&groups=" + encodeURIComponent(etfg))).body);
+const etfRow = etfq.rows && etfq.rows[0];
+console.log("[ETF QUOTES] live=" + (etfRow && etfRow.live) + " name=" + (etfRow && etfRow.name) + " price=" + (etfRow && etfRow.price) + " chg=" + (etfRow && etfRow.changePercent) + "%");
+
+const etfk = JSON.parse((await call("/dsh-stock-watch/kline", "code=sh510300&period=day")).body);
+console.log("[ETF KLINE] candles=" + (etfk.candles ? etfk.candles.length : 0) + " error=" + etfk.error + " last=" + JSON.stringify(etfk.candles && etfk.candles[etfk.candles.length - 1]));

@@ -23,6 +23,7 @@ const inject = ["webServer"];
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const STOCKS_PATH = join(MODULE_DIR, "data", "a_stocks.json");
 const HK_STOCKS_PATH = join(MODULE_DIR, "data", "hk_stocks.json");
+const ETF_STOCKS_PATH = join(MODULE_DIR, "data", "etf_stocks.json");
 const SKILLS_SRC_DIR = join(MODULE_DIR, "skills");
 /** 安装时注入到用户技能目录的技能（与「一键分析」提示词引用的技能保持一致）。 */
 const BUNDLED_SKILLS = ["investment-research", "frontend-design"];
@@ -249,9 +250,12 @@ async function fetchSmartbox(needle) {
       const code = f[1];
       const name = f[2];
       const type = f[4];
-      // 只保留港股正股（GP），过滤窝轮/牛熊证（QZ）等衍生品（美股暂不考虑）
-      if (market === "hk" && type === "GP" && code) {
-        rows.push({ code: market + code, name });
+      // 保留港股正股（GP） + 全市场 ETF（含港股 ETF、新上市基金）；过滤衍生品（QZ/KJ）与 A 股/LOF/分级/FD 等（避免搜索结果过杂）
+      const m = f[0].toLowerCase();
+      if (code && m === "hk" && type === "GP") {
+        rows.push({ code: m + code, name });
+      } else if (code && (m === "sh" || m === "sz" || m === "us") && type === "ETF") {
+        rows.push({ code: m + code, name });
       }
     }
     return rows;
@@ -287,6 +291,21 @@ async function loadHkStocks() {
     hkStocksCache = [];
   }
   return hkStocksCache;
+}
+
+/** ETF（场内基金）池：data/etf_stocks.json（{code: "sh511600", name}，惰性加载并缓存） */
+let etfStocksCache = null;
+async function loadEtfStocks() {
+  if (etfStocksCache) return etfStocksCache;
+  try {
+    const text = await readFile(ETF_STOCKS_PATH, "utf8");
+    const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    const parsed = JSON.parse(clean);
+    etfStocksCache = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    etfStocksCache = [];
+  }
+  return etfStocksCache;
 }
 
 async function fetchJson(url) {
@@ -478,7 +497,7 @@ function apply(ctx) {
     sendJson(res, 200, { groups: loaded.groups, source: loaded.source, path: loaded.path });
   });
 
-  // 添加股票搜索：A 股本地池 + 港股本地池 + 腾讯 smartbox 港股补充，返回带市场前缀的代码
+  // 添加股票搜索：A 股本地池 + ETF 本地池 + 港股本地池 + 腾讯 smartbox 港股/ETF 补充
   register("/dsh-stock-watch/stocks", async (req, res) => {
     const needle = (queryOf(req).get("q") ?? "").trim();
     if (!needle) {
@@ -496,12 +515,16 @@ function apply(ctx) {
         rows.push({ code, name: s.name });
       }
     };
-    const [alist, hklist] = await Promise.all([loadStocks(), loadHkStocks()]);
+    // A 股本地池 + ETF 本地池 + 港股本地池（ETF 与 A 股同交易所同接口，并列于港股前）
+    const [alist, etflist, hklist] = await Promise.all([loadStocks(), loadEtfStocks(), loadHkStocks()]);
     for (const s of alist) { pushMatch(s); if (rows.length >= 50) break; }
+    if (rows.length < 50) {
+      for (const s of etflist) { pushMatch(s); if (rows.length >= 50) break; }
+    }
     if (rows.length < 50) {
       for (const s of hklist) { pushMatch(s); if (rows.length >= 50) break; }
     }
-    // 仍不足 50 条时，联调 smartbox 补充港股正股
+    // 仍不足 50 条时，联调 smartbox 补充港股正股 + 全市场 ETF
     if (rows.length < 50) {
       const smart = await fetchSmartbox(needle);
       for (const s of smart) {
