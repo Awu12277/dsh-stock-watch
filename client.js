@@ -67,7 +67,12 @@ window.__ModuleLoader__.load({
 .sk-icon{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:6px;font-family:inherit}
 .sk-icon:hover{color:var(--sk-text);background:var(--sk-hover)}
 .sk-rows{overflow-y:auto;padding:4px 6px 8px;flex:1 1 auto}
-.sk-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;cursor:pointer}
+.sk-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;cursor:pointer;position:relative}
+/* 背景高亮层（伪元素）：通过 opacity 动画独立控制淡出，不影响文字层 */
+.sk-row::before{content:"";position:absolute;inset:0;background:var(--row-flash-bg,transparent);border-radius:inherit;pointer-events:none;opacity:0}
+/* 闪 0.5s 后渐隐：前 60% 满色、后 40% opacity 1→0 */
+@keyframes sk-row-flash{0%,60%{opacity:1}100%{opacity:0}}
+.sk-row-flash::before{animation:sk-row-flash 1s ease-out forwards}
 .sk-row:hover{background:var(--sk-hover)}
 .sk-name{display:flex;flex-direction:column;flex:1 1 auto;min-width:88px}
 .sk-name-text{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -736,6 +741,11 @@ window.__ModuleLoader__.load({
       // 一键分析防抖：进行中禁止重复点击（避免连点创建多个会话/重复扣费）
       const [analyzing, setAnalyzing] = useState(false);
       const analyzingRef = useRef(false);
+      // 【预览】每 3s 随机颜色高亮列表行（code -> 颜色）；正式版改为价格变动触发红/绿
+      const [rowFlash, setRowFlash] = useState({});
+      const rowRefs = useRef({});
+      // 价格变动闪烁：先亮 0.5s 再渐隐约 1s（独立背景伪元素，不影响文字）
+      const prevPricesRef = useRef({});
       // 胶囊悬浮扇形菜单（行情分析 / 每日复盘 / 涨停分析，功能暂未实现）
       const [fanOpen, setFanOpen] = useState(false);
       const fanOpenRef = useRef(false);
@@ -1436,6 +1446,7 @@ window.__ModuleLoader__.load({
       const rows = (data && Array.isArray(data.rows)) ? data.rows : [];
       const upCount = rows.filter((r) => r.live && r.changePercent > 0).length;
       const downCount = rows.filter((r) => r.live && r.changePercent < 0).length;
+
       const themeToggle = react.createElement("button", {
         className: "sk-icon",
         onClick: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
@@ -1665,7 +1676,22 @@ window.__ModuleLoader__.load({
               const color = row.live ? (isUp ? UP : DOWN) : FLAT;
               const trig = triggerMeta(row.trigger);
               const tip = "高 " + (row.live ? formatPrice(row.high) : "-") + " · 低 " + (row.live ? formatPrice(row.low) : "-") + " · 量 " + (row.live ? row.volume : "-");
-              return react.createElement("div", { key: row.code, className: "sk-row", onClick: () => setView({ code: row.code }), title: tip },
+              // 价格变动闪烁：本次价格 vs 上次价格（ref，无额外渲染）。变化时给该行加 .sk-row-flash 并传背景色（红涨绿跌）
+              const prev = prevPricesRef.current[row.code];
+              const flashBg = (() => {
+                if (!row.live || prev === undefined || prev === row.price) return undefined;
+                return row.price > prev ? "hsla(0, 85%, 60%, 0.28)" : "hsla(140, 70%, 50%, 0.28)";
+              })();
+              if (row.live && prev !== undefined && prev !== row.price) {
+                const el = rowRefs.current[row.code];
+                if (el) {
+                  el.classList.remove("sk-row-flash");
+                  void el.offsetWidth;
+                  el.classList.add("sk-row-flash");
+                }
+              }
+              prevPricesRef.current[row.code] = row.price;
+              return react.createElement("div", { key: row.code, ref: (el) => { if (el) rowRefs.current[row.code] = el; }, className: "sk-row" + (flashBg ? " sk-row-flash" : ""), style: flashBg ? { "--row-flash-bg": flashBg } : undefined, onClick: () => setView({ code: row.code }), title: tip },
                 react.createElement("span", { className: "sk-name" },
                   react.createElement("span", { className: "sk-name-text", style: { color: row.live ? "var(--sk-text)" : FLAT } }, row.name),
                   react.createElement("span", { className: "sk-code" }, row.code.replace(/^(sh|sz|hk|us)/, ""))),
