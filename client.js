@@ -1722,7 +1722,7 @@ window.__ModuleLoader__.load({
                   key: p,
                   className: "sk-period" + (p === period ? " sk-period-active" : ""),
                   onClick: () => setPeriod(p),
-                }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K")))),
+                }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K"))),
             !isMinute && react.createElement("div", { className: "sk-ma-row" },
               react.createElement("span", { className: "sk-zoom" },
                 react.createElement("button", { className: "sk-zoom-btn", title: "缩小K线", onClick: () => zoomKline(1 / 1.35) }, icon("minus", 12)),
@@ -1739,7 +1739,7 @@ window.__ModuleLoader__.load({
                   },
                     react.createElement("span", { className: "sk-ma-dot", style: { background: maColor(p, dark) } }),
                     "MA" + p);
-                }))),
+                })))),
           chartEl,
           statusBar(footText || liveText, data && data.diag ? (data.diag.firstError || "") : ""),
           resizeHandles);
