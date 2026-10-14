@@ -58,6 +58,7 @@ dsh plugin --profile web add dsh-stock-watch
 - **安装时自动注入技能**：插件首次启动时把自带的 `investment-research`、`frontend-design` 两个技能复制到用户技能目录 `~/.agents/skills/`（已存在则跳过、不覆盖用户版本；`DSH_STOCK_WATCH_NO_SKILLS=1` 可禁用，`DSH_STOCK_WATCH_SKILLS_DIR` 可改目标目录）
 - **主题配色**：面板、浮层、图标与图表配色均引用 DSH 设计令牌，可在浅色 / 深色之间切换
 - **图标与排版**：全部图标为取自 DSH 图标集的内联 SVG（16×16、`currentColor`、1px 描边），正文使用 DSH 字体栈（`--dsw-font-family`，股票代码用 `--ds-font-family-code`），圆角统一到 DSH 的 `--dsw-radius-*` 阶梯
+- **选中态**：分组 tab 与周期 tab 按 DSH `SegmentedControl` 的写法呈现——轨道用交互底色，选中项是抬起的浅色面 + 柔和描边投影 + 加粗文字，不用大面积灰底
 
 ## 架构
 
