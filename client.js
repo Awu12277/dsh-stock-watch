@@ -1237,10 +1237,21 @@ window.__ModuleLoader__.load({
 
       // —— 拖拽：窗口级 mousemove/mouseup ——
       useEffect(() => {
+        const endDrag = () => {
+          const d = dragRef.current;
+          if (!d) return;
+          dragRef.current = null;
+          // 只有真正拖动过（moved）才抑制随后的 click；普通点击不抑制 → 正常展开
+          if (d.mode === "pill" && d.moved) suppressClickRef.current = true;
+          // 胶囊拖动/吸附结束：只做归位，不唤出菜单
+          if (d.mode === "pill") resetFan();
+        };
         const onMove = (e) => {
           lastMousePosRef.current = { x: e.clientX, y: e.clientY };
           const d = dragRef.current;
           if (!d) return;
+          // 按键已松开却没收到 mouseup（在窗口外松手、事件丢失）：就地收尾，避免胶囊继续跟着指针跑
+          if (e.buttons === 0) { endDrag(); return; }
           const dx = e.clientX - d.startX;
           const dy = e.clientY - d.startY;
           if (d.mode === "resize") {
@@ -1265,29 +1276,16 @@ window.__ModuleLoader__.load({
             setPos({ x: sx, y: sy });
           }
         };
-        const onUp = () => {
-          const d = dragRef.current;
-          dragRef.current = null;
-          // 只有真正拖动过（moved）才抑制随后的 click；普通点击不抑制 → 正常展开
-          if (d && d.mode === "pill" && d.moved) suppressClickRef.current = true;
-          // 胶囊拖动/吸附结束：重置扇形归位（清掉被中断动画冻结的中间态）；
-          // 若鼠标仍停在胶囊上，则立即重新展开，方便直接点选项（延迟到 React 提交新位置后再判断）
-          if (d && d.mode === "pill") {
-            resetFan();
-            setTimeout(() => {
-              const pr = pillRef.current ? pillRef.current.getBoundingClientRect() : null;
-              const mp = lastMousePosRef.current;
-              if (pr && mp && mp.x >= pr.left && mp.x <= pr.right && mp.y >= pr.top && mp.y <= pr.bottom) {
-                openFan();
-              }
-            }, 0);
-          }
-        };
+        const onUp = () => endDrag();
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
+        window.addEventListener("blur", onUp);
+        document.addEventListener("mouseleave", onUp);
         return () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          window.removeEventListener("blur", onUp);
+          document.removeEventListener("mouseleave", onUp);
         };
       }, []);
 
@@ -1487,7 +1485,10 @@ window.__ModuleLoader__.load({
           ref: pillRef,
           style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
           onMouseDown: (e) => { startDrag(e, "pill"); closeFanNow(); },
-          onMouseEnter: openFan,
+          // 悬停唤出：按住鼠标（拖动中）不唤出；松开后指针移到胶囊上即唤出。
+          // 只依据事件自身的按键状态，不依赖拖动标记，避免漏掉 mouseup 时被永久拦住。
+          onMouseEnter: (e) => { if (!e.buttons) openFan(); },
+          onMouseMove: (e) => { if (!e.buttons) openFan(); },
           onClick: () => {
             if (suppressClickRef.current) { suppressClickRef.current = false; return; }
             closeFanNow();
