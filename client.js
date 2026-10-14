@@ -73,7 +73,6 @@ window.__ModuleLoader__.load({
 }
 .sk-pill{position:fixed;top:14px;right:16px;z-index:9999;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:var(--dsw-radius-md);background:var(--dsw-menu-surface-fill);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);cursor:pointer;user-select:none;font-family:var(--dsw-font-family);font-size:12px;line-height:1.4;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:auto}
 .sk-pill:hover{border-color:var(--dsw-alias-state-business-primary)}
-.sk-pill-title{font-weight:700;color:var(--dsw-alias-state-business-primary);white-space:nowrap}
 .sk-pill-summary{display:inline-flex;gap:6px;font-weight:600}
 .sk-pill-loading{color:var(--dsw-alias-label-tertiary)}
 /* 贴边吸附：胶囊收窄为屏幕边缘的计数块（圆角矩形，显示涨/跌家数） */
@@ -94,7 +93,6 @@ window.__ModuleLoader__.load({
 .sk-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--dsw-menu-surface-fill);border:0;border-radius:var(--dsw-radius-md);padding:6px 14px;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px;line-height:1.4;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:none;white-space:nowrap}
 .sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-1);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel);font-family:var(--dsw-font-family);font-size:13px;line-height:20px;pointer-events:auto}
 .sk-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}
-.sk-title{font-weight:700;color:var(--dsw-alias-state-business-primary);white-space:nowrap}
 .sk-tabs{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
 .sk-tabs::-webkit-scrollbar{display:none}
 .sk-tab{flex:none;padding:2px 9px;border-radius:var(--dsw-radius-sm);border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;white-space:nowrap}
@@ -109,7 +107,6 @@ window.__ModuleLoader__.load({
 .sk-resize:hover{opacity:1}
 .sk-resize-br{bottom:0;right:0;cursor:nwse-resize;border-bottom-right-radius:var(--dsw-radius-lg);background:linear-gradient(315deg,transparent 62%,var(--dsw-alias-label-tertiary) 62%,var(--dsw-alias-label-tertiary) 75%,transparent 75%)}
 .sk-del:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover)}
-.sk-right{display:flex;align-items:center;gap:4px;flex:none}
 .sk-countdown{color:var(--dsw-alias-label-tertiary);white-space:nowrap}
 .sk-icon{background:transparent;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:var(--dsw-radius-sm);font-family:inherit}
 .sk-icon:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
@@ -130,9 +127,9 @@ window.__ModuleLoader__.load({
 .sk-trigger{min-width:34px;text-align:center;border:1px solid;border-radius:var(--dsw-radius-xs);padding:0 6px;font-weight:700}
 .sk-trigger-none{color:var(--dsw-alias-label-caption);border-color:var(--dsw-alias-border-l2)}
 .sk-empty{padding:18px 10px;text-align:center;color:var(--dsw-alias-label-tertiary)}
-.sk-footer{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px}
-.sk-foot-left{max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sk-foot-right{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sk-statusbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px}
+.sk-status-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sk-status-actions{display:flex;align-items:center;gap:2px;flex:none}
 .sk-detail-header{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .sk-detail-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .sk-back{align-self:flex-start;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);border-radius:var(--dsw-radius-sm);padding:2px 8px;cursor:pointer;font:inherit}
@@ -158,7 +155,6 @@ window.__ModuleLoader__.load({
 .sk-chart-box{width:100%;position:relative}
 .sk-candles{display:block;margin:0 auto}
 .sk-chart-empty{padding:30px 10px;text-align:center;color:var(--dsw-alias-label-tertiary)}
-.sk-detail-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px}
 .sk-pill{cursor:grab}
 .sk-pill:active{cursor:grabbing}
 .sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
@@ -1512,6 +1508,20 @@ window.__ModuleLoader__.load({
         title: theme === "dark" ? "切换到浅色主题" : "切换到暗色主题",
       }, theme === "dark" ? "☀️" : "🌙");
 
+      // 状态文案：有实时数据给更新时间，否则给失败/加载状态
+      const liveText = data && data.live
+        ? "更新 " + new Date(data.updatedAt).toLocaleTimeString("zh-CN", { hour12: false })
+        : (error ? "行情获取失败" : (data ? (data.diag && data.diag.firstError ? "行情失败：" + data.diag.firstError : "无实时数据") : "加载中…"));
+
+      // 状态栏（列表页与详情页共用）：左侧更新/加载状态，右侧倒计时、刷新、主题、折叠
+      const statusBar = (text, title) => react.createElement("div", { className: "sk-statusbar" },
+        react.createElement("span", { className: "sk-status-text", title: title }, text),
+        react.createElement("span", { className: "sk-status-actions" },
+          react.createElement("span", { className: "sk-countdown", title: "自动刷新倒计时" }, countdown + "s"),
+          react.createElement("button", { className: "sk-icon", title: "立即刷新", onClick: () => load(true) }, "⟳"),
+          themeToggle,
+          react.createElement("button", { className: "sk-icon", title: "折叠回胶囊", onClick: () => setExpanded(false) }, "—")));
+
       // 面板右下角拉伸手柄（列表页与详情页共用）
       const resizeHandles = react.createElement("div", { className: "sk-resize sk-resize-br", title: "拉伸面板", onMouseDown: (e) => startResize(e, "br") });
 
@@ -1548,16 +1558,15 @@ window.__ModuleLoader__.load({
           style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
           onMouseDown: (e) => { startDrag(e, "pill"); closeFanNow(); },
           onMouseEnter: openFan,
+          title: "自选股盯盘：点击展开，可拖动，悬停弹出快捷分析",
+          role: "button",
           onClick: () => {
             if (suppressClickRef.current) { suppressClickRef.current = false; return; }
             closeFanNow();
             setExpanded(true);
           },
         },
-          dock ? dockBody : [
-            react.createElement("span", { key: "t", className: "sk-pill-title" }, "📈 自选股"),
-            summary,
-          ]);
+          dock ? dockBody : summary);
         // 悬浮扇形菜单（行情分析 / 每日复盘 / 涨停分析；功能暂未实现，仅展示）
         // 每日复盘时段：仅 15:00–次日 9:00 可点击（复盘需当日收盘后数据）；9:00–15:00 交易时段置灰
         const reviewState = (() => {
@@ -1616,9 +1625,10 @@ window.__ModuleLoader__.load({
           : (lwc
               ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period, maVisible, fill: !!size, chartApiRef: klineChartApiRef })
               : react.createElement(SvgCandles, { candles, width: 380, height: 228, fill: !!size }));
+        // 仅在加载/失败时占用状态栏；成功后回到统一的更新时间文案
         const footText = isMinute
-          ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : (m && Array.isArray(m.points) ? m.points.length + " 个分时点" : "")))
-          : (k === null ? "K线加载中…" : (k && k.error ? "K线：" + k.error : (candles.length + " 根K线")));
+          ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : null))
+          : (k === null ? "K线加载中…" : (k && k.error ? "K线：" + k.error : null));
         const targetChip = (type) => {
           const label = type === "buy" ? "买入目标" : "卖出目标";
           const key = type === "buy" ? "buyPrice" : "sellPrice";
@@ -1653,8 +1663,7 @@ window.__ModuleLoader__.load({
           react.createElement("div", { className: "sk-detail-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
             react.createElement("div", { className: "sk-detail-top" },
               react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
-              react.createElement("button", { className: "sk-analyze", onClick: () => analyzeStock(), disabled: analyzing }, analyzing ? "📈 分析中…" : "📈 投资研究报告"),
-              react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "最小化回胶囊" }, "—")),
+              react.createElement("button", { className: "sk-analyze", onClick: () => analyzeStock(), disabled: analyzing }, analyzing ? "分析中…" : "投资研究报告")),
             react.createElement("div", { className: "sk-detail-info" },
               react.createElement("span", { className: "sk-detail-name" }, row ? row.name : view.code),
               react.createElement("span", { className: "sk-detail-price", style: { color } }, row && row.live ? formatPrice(row.price) : "--"),
@@ -1687,16 +1696,12 @@ window.__ModuleLoader__.load({
                     "MA" + p);
                 }))),
           chartEl,
-          react.createElement("div", { className: "sk-detail-foot" },
-            react.createElement("span", null, footText),
-            react.createElement("span", { className: "sk-right" }, themeToggle,
-              react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"))),
+          statusBar(footText || liveText, data && data.diag ? (data.diag.firstError || "") : ""),
           resizeHandles);
       }
 
       // —— 列表视图 ——
       const header = react.createElement("div", { className: "sk-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
-        react.createElement("span", { className: "sk-title" }, "📈 自选股盯盘"),
         react.createElement("span", { className: "sk-tabs" },
           groups.map((g, i) =>
             react.createElement("span", { key: i, className: "sk-tab-wrap" + (i === groupIndex ? " sk-tab-wrap-active" : "") },
@@ -1721,11 +1726,7 @@ window.__ModuleLoader__.load({
                 title: "删除分组「" + g.name + "」",
                 onClick: (e) => { e.stopPropagation(); deleteGroup(i); },
               }, "✕")))),
-        react.createElement("span", { className: "sk-right" },
-          react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"),
-          themeToggle,
-          react.createElement("button", { className: "sk-icon", onClick: () => load(true), title: "立即刷新" }, "⟳"),
-          react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "折叠" }, "—")));
+        null);
 
       // 面板定高时列表区域 flex:1 1 0 强制填满并滚动
       const rowsFill = size ? { flex: "1 1 0", minHeight: 0 } : undefined;
@@ -1769,14 +1770,7 @@ window.__ModuleLoader__.load({
                 }, "✕"));
             }));
 
-      const footer = react.createElement("div", { className: "sk-footer" },
-        react.createElement("span", { className: "sk-foot-left", title: data && data.diag && data.diag.firstError ? data.diag.firstError : "" },
-          data && data.live ? "腾讯行情" : (error ? "行情获取失败" : (data ? (data.diag && data.diag.firstError ? "行情失败：" + data.diag.firstError : "无实时数据") : "—"))),
-        react.createElement("span", { className: "sk-foot-mid" }, data ? "更新 " + new Date(data.updatedAt).toLocaleTimeString("zh-CN", { hour12: false }) : ""),
-        react.createElement("span", { className: "sk-foot-right", title: data && data.config ? (data.config.path || "") : "" },
-          data && data.config && data.config.source === "local"
-            ? "配置：localStorage"
-            : (data && data.config && data.config.source === "file" ? "~/.stocking/settings.json" : "默认分组")));
+
 
       // 添加面板（菜单 / 股票搜索 / 分组创建）
       const addPanel = showAdd ? react.createElement("div", { className: "sk-add-mask" },
@@ -1826,7 +1820,7 @@ window.__ModuleLoader__.load({
         react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("stock") }, "＋ 添加股票"),
         react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("group") }, "🗂 添加分组"));
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, footer, resizeHandles, addPanel);
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, statusBar(liveText), resizeHandles, addPanel);
     }
 
     // ------------------------------------------------------------------ 插件主体
