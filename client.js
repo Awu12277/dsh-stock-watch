@@ -92,11 +92,13 @@ window.__ModuleLoader__.load({
 .sk-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--dsw-menu-surface-fill);border:0;border-radius:var(--dsw-radius-md);padding:6px 14px;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px;line-height:1.4;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:none;white-space:nowrap}
 .sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-1);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel);font-family:var(--dsw-font-family);font-size:13px;line-height:20px;pointer-events:auto}
 .sk-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}
-.sk-tabs{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.sk-tabs{display:flex;gap:2px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px;background:var(--dsw-alias-interactive-bg-hover);border-radius:var(--dsw-radius-sm)}
 .sk-tabs::-webkit-scrollbar{display:none}
-.sk-tab{flex:none;padding:2px 9px;border-radius:var(--dsw-radius-sm);border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;white-space:nowrap}
+.sk-tab{flex:none;height:22px;padding:0 10px;border:0;border-radius:var(--dsw-radius-xs);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;white-space:nowrap}
 .sk-tab:hover{color:var(--dsw-alias-label-primary)}
-.sk-tab-active{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary)}
+.sk-tab-active{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:600;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-soft)}
+/* 分组名与计数分开：计数用次一级颜色，避免选中项整体发灰 */
+.sk-tab-count{color:var(--dsw-alias-label-tertiary);font-weight:400}
 .sk-tab-wrap{display:flex;align-items:center;gap:2px;flex:none}
 .sk-tab-del{background:transparent;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:10px;font-weight:700;line-height:1;padding:0 2px;opacity:0;pointer-events:none}
 .sk-tab-wrap:hover .sk-tab-del{opacity:1;pointer-events:auto}
@@ -151,10 +153,10 @@ window.__ModuleLoader__.load({
 .sk-target-btn:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
 .sk-target-input{width:120px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:1px 6px;font:inherit}
 .sk-flash{font-size:11px}
-.sk-periods{display:flex;gap:4px;flex-wrap:wrap}
-.sk-period{background:transparent;border:1px solid transparent;color:var(--dsw-alias-label-tertiary);border-radius:var(--dsw-radius-sm);padding:1px 8px;cursor:pointer;font:inherit}
+.sk-periods{display:flex;gap:2px;flex-wrap:wrap;padding:2px;background:var(--dsw-alias-interactive-bg-hover);border-radius:var(--dsw-radius-sm)}
+.sk-period{background:transparent;border:0;color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-xs);height:22px;padding:0 10px;cursor:pointer;font:inherit}
 .sk-period:hover{color:var(--dsw-alias-label-primary)}
-.sk-period-active{color:var(--dsw-alias-state-business-primary);border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-interactive-bg-hover-accent)}
+.sk-period-active{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:600;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-soft)}
 .sk-chart-box{width:100%;position:relative}
 .sk-candles{display:block;margin:0 auto}
 .sk-chart-empty{padding:30px 10px;text-align:center;color:var(--dsw-alias-label-tertiary)}
@@ -1763,7 +1765,7 @@ window.__ModuleLoader__.load({
                     onClick: () => setGroupIndex(i),
                     onDoubleClick: (e) => { e.preventDefault(); setRenameTarget(i); setRenameEdit(g.name); },
                     title: "双击重命名「" + g.name + "」",
-                  }, g.name + (g.count > 0 ? " (" + g.count + ")" : "")),
+                  }, g.name, g.count > 0 ? react.createElement("span", { className: "sk-tab-count" }, g.count) : null),
               react.createElement("button", {
                 className: "sk-tab-del",
                 title: "删除分组「" + g.name + "」",
