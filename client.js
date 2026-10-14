@@ -1053,7 +1053,7 @@ window.__ModuleLoader__.load({
         const items = Array.from(box.querySelectorAll(".sk-fan-item"));
         const g = gsapLibRef.current;
         if (g && items.length) {
-          g.set(items, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 0.3, autoAlpha: 0, rotation: -8, clearProps: "left,top" });
+          g.set(items, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 0.3, opacity: 0, rotation: -8, clearProps: "left,top" });
         } else {
           for (const el of items) { el.style.opacity = "0"; }
         }
@@ -1174,6 +1174,8 @@ window.__ModuleLoader__.load({
           el.style.top = (geo.cy - origin.y1) + "px";
           el.style.transform = "translate(" + it.dx + "px, " + it.dy + "px) translate(-50%, -50%) scale(1)";
           el.style.opacity = el.classList.contains("sk-fan-item-disabled") ? "0.4" : "1";
+          // GSAP 的 autoAlpha 会给元素内联 visibility；这里交回继承，避免内联 visible 压过父容器的 hidden
+          el.style.visibility = "inherit";
         });
         return undefined;
       }, [fanOpen, expanded, pos]);
@@ -1189,8 +1191,16 @@ window.__ModuleLoader__.load({
           if (inPill || inFan) cancelFanClose();
           else scheduleFanClose();
         };
+        // 指针离开文档或窗口失焦时立即收起：这两种情况收不到 mousemove，延时收拢不会被安排
+        const closeNow = () => setFanOpen(false);
         window.addEventListener("mousemove", onMove);
-        return () => window.removeEventListener("mousemove", onMove);
+        document.addEventListener("mouseleave", closeNow);
+        window.addEventListener("blur", closeNow);
+        return () => {
+          window.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseleave", closeNow);
+          window.removeEventListener("blur", closeNow);
+        };
       }, [fanOpen, expanded, cancelFanClose, scheduleFanClose]);
 
       // 展开：每 10s 拉行情（含分时）；折叠：每 30s 轻量拉取
