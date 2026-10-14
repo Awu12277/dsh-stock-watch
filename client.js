@@ -20,7 +20,9 @@ window.__ModuleLoader__.load({
     const styleTag = document.createElement("style");
     styleTag.textContent = `
 .sk-theme-dark{--sk-panel-bg:rgba(13,17,26,.96);--sk-pill-bg:rgba(13,17,26,.93);--sk-border:rgba(255,255,255,.16);--sk-border-soft:rgba(255,255,255,.08);--sk-text:#e5e7eb;--sk-dim:#9ca3af;--sk-muted:#6b7280;--sk-muted-strong:#4b5563;--sk-hover:rgba(255,255,255,.06);--sk-cyan:#22d3ee;--sk-cyan-soft:rgba(34,211,238,.16);--sk-cyan-border:rgba(34,211,238,.5);--sk-shadow:0 8px 32px rgba(0,0,0,.5)}
-.sk-theme-light{--sk-panel-bg:rgba(255,255,255,.97);--sk-pill-bg:rgba(255,255,255,.95);--sk-border:rgba(15,23,42,.14);--sk-border-soft:rgba(15,23,42,.08);--sk-text:#1f2937;--sk-dim:#4b5563;--sk-muted:#6b7280;--sk-muted-strong:#9ca3af;--sk-hover:rgba(15,23,42,.06);--sk-cyan:#0891b2;--sk-cyan-soft:rgba(8,145,178,.12);--sk-cyan-border:rgba(8,145,178,.5);--sk-shadow:0 8px 32px rgba(15,23,42,.18)}
+.sk-theme-light,.sk-theme-auto{--sk-panel-bg:rgba(255,255,255,.97);--sk-pill-bg:rgba(255,255,255,.95);--sk-border:rgba(15,23,42,.14);--sk-border-soft:rgba(15,23,42,.08);--sk-text:#1f2937;--sk-dim:#4b5563;--sk-muted:#6b7280;--sk-muted-strong:#9ca3af;--sk-hover:rgba(15,23,42,.06);--sk-cyan:#0891b2;--sk-cyan-soft:rgba(8,145,178,.12);--sk-cyan-border:rgba(8,145,178,.5);--sk-shadow:0 8px 32px rgba(15,23,42,.18)}
+/* 自动模式（默认）：跟随 DSH 明暗，此处按 body 上的暗色标记切换到深色变量 */
+body[data-ds-dark-theme] .sk-theme-auto{--sk-panel-bg:rgba(13,17,26,.96);--sk-pill-bg:rgba(13,17,26,.93);--sk-border:rgba(255,255,255,.16);--sk-border-soft:rgba(255,255,255,.08);--sk-text:#e5e7eb;--sk-dim:#9ca3af;--sk-muted:#6b7280;--sk-muted-strong:#4b5563;--sk-hover:rgba(255,255,255,.06);--sk-cyan:#22d3ee;--sk-cyan-soft:rgba(34,211,238,.16);--sk-cyan-border:rgba(34,211,238,.5);--sk-shadow:0 8px 32px rgba(0,0,0,.5)}
 .sk-pill{position:fixed;top:14px;right:16px;z-index:9999;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--sk-pill-bg);border:1px solid var(--sk-border);color:var(--sk-text);cursor:pointer;user-select:none;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;box-shadow:0 4px 18px rgba(0,0,0,.35);backdrop-filter:blur(8px);pointer-events:auto}
 .sk-pill:hover{border-color:var(--sk-cyan-border)}
 .sk-pill-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
@@ -163,6 +165,7 @@ window.__ModuleLoader__.load({
     ];
     const POS_KEY = "stocking.pos.v1";
     const SIZE_KEY = "stocking.size.v1";
+    const THEME_KEY = "stocking.theme.v1";
     // 内置提示词（保持不变，规范原文；{name}/{code} 为占位符）。
     // 实际发送使用简短消息「分析{name}（code）」；技能调用指令由 host 端注入的条件式系统提示保证。
     const BUILTIN_ANALYZE_PROMPT = "使用技能 investment-research 分析下{name}（{code}）这家公司，再使用技能 frontend-design 生成一个网站";
@@ -178,6 +181,7 @@ window.__ModuleLoader__.load({
     const MA_PERIODS = [5, 10, 20, 60];
     const MA_COLOR = { 10: "#ffcc00", 20: "#ff5cd2", 60: "#00ff41" };
     const MA_STORAGE_KEY = "stocking.ma.v1";
+    const THEME_LABEL = { auto: "自动", light: "浅色", dark: "深色" };
     function maColor(p, dark) {
       return p === 5 ? (dark ? "#e5e7eb" : "#374151") : MA_COLOR[p] || "#ffcc00";
     }
@@ -728,7 +732,15 @@ window.__ModuleLoader__.load({
       const [groupIndex, setGroupIndex] = useState(0);
       const [view, setView] = useState(null);
       const [period, setPeriod] = useState("minute");
-      const [theme, setTheme] = useState("dark");
+      // 主题：auto 跟随 DSH，light/dark 为插件内的强制覆盖；默认 auto。
+      const [theme, setTheme] = useState(() => {
+        try {
+          const v = window.localStorage.getItem(THEME_KEY);
+          return v === "light" || v === "dark" ? v : "auto";
+        } catch { return "auto"; }
+      });
+      // DSH 当前是否暗色（body 上的 data-ds-dark-theme），切换时同步
+      const [dsDark, setDsDark] = useState(() => document.body.hasAttribute("data-ds-dark-theme"));
       const [groupsCfg, setGroupsCfg] = useState(null);
       const [data, setData] = useState(null);
       const [kline, setKline] = useState(null);
@@ -1314,6 +1326,22 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }, [maVisible]);
 
+      // 跟随 DSH 主题：auto 模式下按 body 上的暗色标记取色，DSH 切换时同步重渲染
+      useEffect(() => {
+        const sync = () => setDsDark(document.body.hasAttribute("data-ds-dark-theme"));
+        sync();
+        const observer = new MutationObserver(sync);
+        observer.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme"] });
+        return () => observer.disconnect();
+      }, []);
+
+      // 主题选择 → 持久化
+      useEffect(() => {
+        try {
+          window.localStorage.setItem(THEME_KEY, theme);
+        } catch { /* ignore */ }
+      }, [theme]);
+
       // 股票搜索（防抖 200ms，调 Host /stocks 全 A 股池）
       useEffect(() => {
         if (showAdd !== "stock") return undefined;
@@ -1449,9 +1477,9 @@ window.__ModuleLoader__.load({
 
       const themeToggle = react.createElement("button", {
         className: "sk-icon",
-        onClick: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
-        title: theme === "dark" ? "切换到浅色主题" : "切换到暗色主题",
-      }, theme === "dark" ? "☀️" : "🌙");
+        onClick: () => setTheme((t) => (t === "auto" ? "light" : (t === "light" ? "dark" : "auto"))),
+        title: "主题：" + THEME_LABEL[theme] + "（自动跟随 DSH / 浅色 / 深色）",
+      }, theme === "auto" ? "◐" : (theme === "light" ? "☀️" : "🌙"));
 
       // 面板右下角拉伸手柄（列表页与详情页共用）
       const resizeHandles = react.createElement("div", { className: "sk-resize sk-resize-br", title: "拉伸面板", onMouseDown: (e) => startResize(e, "br") });
@@ -1547,7 +1575,7 @@ window.__ModuleLoader__.load({
         const isUp = row ? (row.live ? row.changePercent >= 0 : false) : false;
         const color = row && row.live ? (isUp ? UP : DOWN) : FLAT;
         const trig = row ? triggerMeta(row.trigger) : null;
-        const dark = theme === "dark";
+        const dark = theme === "dark" || (theme === "auto" && dsDark);
         const chartEl = isMinute
           ? (lwc
               ? react.createElement(MinuteChart, { lwc, points: m && Array.isArray(m.points) ? m.points : [], prevClose: m ? m.prevClose : null, height: 240, dark, fitKey: view.code + ":minute", fill: !!size })
