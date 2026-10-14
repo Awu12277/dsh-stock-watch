@@ -5,7 +5,8 @@
  * 数据来自 node 端插件注册的 /dsh-stock-watch/* 路由（同源 fetch）。
  * 自选股配置（分组/代码/买卖目标价）存 localStorage，首次从 settings.json 迁移。
  * 图表：TradingView Lightweight Charts（CDN 懒加载，失败降级自绘 SVG）。
- * 配色沿用 A 股红涨绿跌惯例（涨 #ff1493 / 跌 #00ff41）。
+ * 配色统一取自 DSH 设计令牌（--dsw-*）；A 股红涨绿跌的涨跌色是插件自有语义色（--sk-up/--sk-down），
+ * 按亮/暗主题分别取值，DOM 与 canvas 图表共用同一份定义。
  */
 window.__ModuleLoader__.load({
   id: "dsh-stock-watch",
@@ -16,145 +17,194 @@ window.__ModuleLoader__.load({
     let react = require("react");
     const { useState, useEffect, useCallback, useRef } = react;
 
+    // A 股红涨绿跌。DSH 没有涨跌语义色，故定义插件自有的低饱和色对，并区分亮/暗两档；
+    // DOM 侧引用 CSS 令牌 --sk-up/--sk-down（随主题类切换），canvas 图表按当前主题取具体值。
+    // 该定义必须先于下面的令牌样式表（样式表在模板串里插值它的取值）。
+    const PALETTE = {
+      light: { up: "#d93a3a", down: "#0d9550", flat: "#6b7280", warn: "#dd8629" },
+      dark: { up: "#ff4444", down: "#00aa44", flat: "#8b93a7", warn: "#f7ad31" },
+    };
+
     // ------------------------------------------------------------------ CSS
     const styleTag = document.createElement("style");
     styleTag.textContent = `
-.sk-theme-dark{--sk-panel-bg:rgba(13,17,26,.96);--sk-pill-bg:rgba(13,17,26,.93);--sk-border:rgba(255,255,255,.16);--sk-border-soft:rgba(255,255,255,.08);--sk-text:#e5e7eb;--sk-dim:#9ca3af;--sk-muted:#6b7280;--sk-muted-strong:#4b5563;--sk-hover:rgba(255,255,255,.06);--sk-cyan:#22d3ee;--sk-cyan-soft:rgba(34,211,238,.16);--sk-cyan-border:rgba(34,211,238,.5);--sk-shadow:0 8px 32px rgba(0,0,0,.5)}
-.sk-theme-light{--sk-panel-bg:rgba(255,255,255,.97);--sk-pill-bg:rgba(255,255,255,.95);--sk-border:rgba(15,23,42,.14);--sk-border-soft:rgba(15,23,42,.08);--sk-text:#1f2937;--sk-dim:#4b5563;--sk-muted:#6b7280;--sk-muted-strong:#9ca3af;--sk-hover:rgba(15,23,42,.06);--sk-cyan:#0891b2;--sk-cyan-soft:rgba(8,145,178,.12);--sk-cyan-border:rgba(8,145,178,.5);--sk-shadow:0 8px 32px rgba(15,23,42,.18)}
-.sk-pill{position:fixed;top:14px;right:16px;z-index:9999;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:var(--sk-pill-bg);border:1px solid var(--sk-border);color:var(--sk-text);cursor:pointer;user-select:none;font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;box-shadow:0 4px 18px rgba(0,0,0,.35);backdrop-filter:blur(8px);pointer-events:auto}
-.sk-pill:hover{border-color:var(--sk-cyan-border)}
-.sk-pill-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
+.sk-theme-dark{
+--dsw-menu-surface-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-750) 45%,transparent);
+--dsw-alias-bg-layer-1:var(--dsw-static-neutral-bluish-875);
+--dsw-alias-bg-layer-2:var(--dsw-static-neutral-bluish-850);
+--dsw-alias-label-primary:var(--dsw-static-neutral-bluish-50);
+--dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-300);
+--dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-400);
+--dsw-alias-label-caption:var(--dsw-static-neutral-bluish-600);
+--dsw-alias-border-l1:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 6%,transparent);
+--dsw-alias-border-l2:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 12%,transparent);
+--dsw-alias-border-l3:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 16%,transparent);
+--dsw-alias-interactive-bg-hover:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 8%,transparent);
+--dsw-alias-interactive-bg-active:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 14%,transparent);
+--dsw-alias-interactive-bg-hover-accent:color-mix(in srgb,var(--dsw-static-neutral-bluish-00) 24%,transparent);
+--dsw-alias-state-business-primary:var(--dsw-static-deepseek-450);
+--dsw-alias-state-error-primary:var(--dsw-static-red-400);
+--dsw-alias-state-success-primary:var(--dsw-static-green-400);
+--dsw-alias-state-warn-label:var(--dsw-static-amber-400);
+--sk-up:${PALETTE.dark.up};--sk-down:${PALETTE.dark.down};--sk-flat:${PALETTE.dark.flat};
+}
+/* 强制浅色 / 强制暗色：把 DSH 语义别名在本插件子树内重绑为对应主题的取值。
+   取值全部来自 DSH 静态基色（--dsw-static-*）与 DSH 自身的透明度，不引入自定义色；
+   自动模式不声明这些别名，直接继承 DSH 当前主题，因此无需任何覆盖。 */
+.sk-theme-light{
+--dsw-menu-surface-fill:color-mix(in srgb,var(--dsw-static-neutral-bluish-50) 58%,transparent);
+--dsw-alias-bg-layer-1:var(--dsw-static-neutral-bluish-00);
+--dsw-alias-bg-layer-2:var(--dsw-static-neutral-bluish-50);
+--dsw-alias-label-primary:var(--dsw-static-neutral-bluish-1000);
+--dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-700);
+--dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-600);
+--dsw-alias-label-caption:var(--dsw-static-neutral-bluish-400);
+--dsw-alias-border-l1:color-mix(in srgb,var(--dsw-static-neutral-1000) 4%,transparent);
+--dsw-alias-border-l2:color-mix(in srgb,var(--dsw-static-neutral-1000) 10%,transparent);
+--dsw-alias-border-l3:color-mix(in srgb,var(--dsw-static-neutral-1000) 13%,transparent);
+--dsw-alias-interactive-bg-hover:color-mix(in srgb,var(--dsw-static-deepseek-900) 6%,transparent);
+--dsw-alias-interactive-bg-active:color-mix(in srgb,var(--dsw-static-deepseek-900) 10%,transparent);
+--dsw-alias-interactive-bg-hover-accent:color-mix(in srgb,var(--dsw-static-deepseek-900) 14%,transparent);
+--dsw-alias-state-business-primary:var(--dsw-static-deepseek-500);
+--dsw-alias-state-error-primary:var(--dsw-static-red-600);
+--dsw-alias-state-success-primary:var(--dsw-static-green-500);
+--dsw-alias-state-warn-label:var(--dsw-static-amber-600);
+--sk-up:${PALETTE.light.up};--sk-down:${PALETTE.light.down};--sk-flat:${PALETTE.light.flat};
+}
+.sk-pill{position:fixed;top:14px;right:16px;z-index:9999;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:var(--dsw-radius-md);background:var(--dsw-menu-surface-fill);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);cursor:pointer;user-select:none;font-family:var(--dsw-font-family);font-size:12px;line-height:1.4;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:auto}
+.sk-pill:hover{border-color:var(--dsw-alias-state-business-primary)}
 .sk-pill-summary{display:inline-flex;gap:6px;font-weight:600}
-.sk-pill-loading{color:var(--sk-muted)}
-/* 贴边吸附：胶囊变为屏幕边缘的半球，显示涨/跌家数（平边贴屏幕边缘，弧面朝内） */
+.sk-pill-loading{color:var(--dsw-alias-label-tertiary)}
+/* 贴边吸附：胶囊收窄为屏幕边缘的计数块（圆角矩形，显示涨/跌家数） */
 .sk-pill.sk-dock{box-sizing:border-box;width:52px;height:44px;flex-direction:column;gap:1px;padding:3px 4px;justify-content:center;text-align:center}
-.sk-dock-left{border-radius:0 22px 22px 0}
-.sk-dock-right{border-radius:22px 0 0 22px}
-.sk-dock-top{border-radius:0 0 26px 26px}
-.sk-dock-bottom{border-radius:26px 26px 0 0}
+
 .sk-dock-body{display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.05}
 .sk-dock-count{font-size:10px;font-weight:700;white-space:nowrap}
 /* 胶囊悬浮扇形菜单：全屏透明层（不挡点击），选项本身可点；GSAP 驱动位移/缩放/透明度 */
 .sk-fan{position:fixed;inset:0;z-index:9998;pointer-events:none;visibility:hidden}
-.sk-fan-item{position:absolute;left:0;top:0;display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;background:var(--sk-pill-bg);border:1px solid var(--sk-cyan-border);color:var(--sk-text);font:11px/1.3 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.38);backdrop-filter:blur(8px);pointer-events:auto;white-space:nowrap;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,filter .18s ease}
+.sk-fan-item{position:absolute;left:0;top:0;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--dsw-radius-md);background:var(--dsw-menu-surface-fill);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px;line-height:1.3;cursor:pointer;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:auto;white-space:nowrap;transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,filter .18s ease}
 /* hover：青底着色 + 青色光晕；上浮/缩放由 GSAP 驱动（CSS 独立变换属性会被 GSAP 内联的 translate:none 覆盖） */
-.sk-fan-item:hover{background:var(--sk-cyan-soft);border-color:var(--sk-cyan);color:var(--sk-cyan);box-shadow:0 0 0 1px rgba(34,211,238,.22),0 10px 26px rgba(34,211,238,.22),0 4px 14px rgba(0,0,0,.35);filter:brightness(1.08)}
+.sk-fan-item:hover{background:var(--dsw-alias-interactive-bg-hover-accent);color:var(--dsw-alias-state-business-primary);box-shadow:var(--dsw-elevation-prominent);filter:brightness(1.02)}
 .sk-fan-item:active{filter:brightness(.92)}
-.sk-fan-item:focus-visible{outline:2px solid var(--sk-cyan);outline-offset:2px}
-.sk-fan-item-disabled,.sk-fan-item-disabled:hover{opacity:.4;border-color:var(--sk-border);color:var(--sk-muted);background:transparent;cursor:not-allowed;filter:none;box-shadow:0 6px 22px rgba(0,0,0,.38)}
-.sk-fan-icon{font-size:13px}
+.sk-fan-item:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+.sk-fan-item-disabled,.sk-fan-item-disabled:hover{opacity:.45;color:var(--dsw-alias-label-tertiary);background:transparent;cursor:not-allowed;filter:none;box-shadow:none}
 /* 折叠态反馈 toast */
-.sk-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--sk-pill-bg);border:1px solid var(--sk-border);border-radius:8px;padding:6px 14px;font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;box-shadow:0 6px 22px rgba(0,0,0,.38);pointer-events:none;white-space:nowrap}
-.sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:var(--sk-panel-bg);border:1px solid var(--sk-border);color:var(--sk-text);box-shadow:var(--sk-shadow);backdrop-filter:blur(10px);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,'Courier New',monospace;pointer-events:auto}
-.sk-header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--sk-border-soft)}
-.sk-title{font-weight:700;color:var(--sk-cyan);white-space:nowrap}
-.sk-tabs{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}
+.sk-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:10000;background:var(--dsw-menu-surface-fill);border:0;border-radius:var(--dsw-radius-md);padding:6px 12px;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px;line-height:1.4;box-shadow:var(--dsw-elevation-panel);backdrop-filter:var(--dsw-menu-backdrop-filter);pointer-events:none;white-space:nowrap}
+.sk-panel{position:fixed;top:14px;right:16px;z-index:9999;width:400px;max-height:78vh;display:flex;flex-direction:column;border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-1);border:0;color:var(--dsw-alias-label-primary);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-panel);font-family:var(--dsw-font-family);font-size:13px;line-height:20px;pointer-events:auto}
+.sk-header{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.sk-tabs{display:flex;gap:2px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding:2px;background:var(--dsw-alias-interactive-bg-hover);border-radius:var(--dsw-radius-sm)}
 .sk-tabs::-webkit-scrollbar{display:none}
-.sk-tab{flex:none;padding:2px 9px;border-radius:999px;border:1px solid transparent;background:transparent;color:var(--sk-muted);cursor:pointer;font:inherit;white-space:nowrap}
-.sk-tab:hover{color:var(--sk-text)}
-.sk-tab-active{background:var(--sk-cyan-soft);color:var(--sk-cyan);border-color:var(--sk-cyan-border)}
+.sk-tab{flex:none;height:24px;padding:0 10px;border:0;border-radius:var(--dsw-radius-xs);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;white-space:nowrap}
+.sk-tab:hover{color:var(--dsw-alias-label-primary)}
+.sk-tab-active{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:600;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-soft)}
+/* 分组名与计数分开：计数用次一级颜色，避免选中项整体发灰 */
+.sk-tab-count{color:var(--dsw-alias-label-tertiary);font-weight:400;margin-left:4px}
 .sk-tab-wrap{display:flex;align-items:center;gap:2px;flex:none}
-.sk-tab-del{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:10px;font-weight:700;line-height:1;padding:0 2px;opacity:0;pointer-events:none}
+.sk-tab-del{background:transparent;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:10px;font-weight:700;line-height:1;padding:0 2px;opacity:0;pointer-events:none}
 .sk-tab-wrap:hover .sk-tab-del{opacity:1;pointer-events:auto}
-.sk-tab-del:hover{color:#ff5555}
-.sk-del{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:11px;padding:0 2px;width:18px;flex:none;border-radius:4px}
-.sk-resize{position:absolute;width:14px;height:14px;z-index:6;opacity:.55}
+.sk-tab-del:hover{color:var(--dsw-alias-state-error-primary)}
+.sk-del{background:transparent;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:11px;padding:0;width:20px;flex:none;border-radius:var(--dsw-radius-xs)}
+.sk-resize{position:absolute;width:16px;height:16px;z-index:6;opacity:.55}
 .sk-resize:hover{opacity:1}
-.sk-resize-br{bottom:0;right:0;cursor:nwse-resize;border-bottom-right-radius:10px;background:linear-gradient(315deg,transparent 62%,var(--sk-muted) 62%,var(--sk-muted) 75%,transparent 75%)}
-.sk-del:hover{color:#ff5555;background:var(--sk-hover)}
-.sk-right{display:flex;align-items:center;gap:4px;flex:none}
-.sk-countdown{color:var(--sk-muted);white-space:nowrap}
-.sk-icon{background:transparent;border:none;color:var(--sk-muted);cursor:pointer;font-size:13px;padding:2px 6px;border-radius:6px;font-family:inherit}
-.sk-icon:hover{color:var(--sk-text);background:var(--sk-hover)}
-.sk-rows{overflow-y:auto;padding:4px 6px 8px;flex:1 1 auto}
-.sk-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;cursor:pointer;position:relative}
+.sk-resize-br{bottom:0;right:0;cursor:nwse-resize;border-bottom-right-radius:var(--dsw-radius-lg);background:linear-gradient(315deg,transparent 62%,var(--dsw-alias-label-tertiary) 62%,var(--dsw-alias-label-tertiary) 75%,transparent 75%)}
+.sk-del:hover{color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-interactive-bg-hover)}
+.sk-countdown{color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+/* 图标与图标按钮：统一由内联 SVG 承载，尺寸固定、几何一致 */
+.sk-ico{display:block;flex:none}
+.sk-icon,.sk-back,.sk-analyze,.sk-zoom-btn,.sk-fan-item,.sk-add-bar-btn,.sk-del,.sk-tab-del{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.sk-icon{width:24px;height:24px;padding:0}
+.sk-icon{background:transparent;border:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:13px;padding:0;border-radius:var(--dsw-radius-sm);font-family:inherit}
+.sk-icon:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
+.sk-rows{overflow-y:auto;padding:4px 6px 6px;flex:1 1 auto}
+.sk-row{display:flex;align-items:center;gap:8px;padding:6px;border-radius:var(--dsw-radius-sm);cursor:pointer;position:relative}
 /* 背景高亮层（伪元素）：通过 opacity 动画独立控制淡出，不影响文字层 */
 .sk-row::before{content:"";position:absolute;inset:0;background:var(--row-flash-bg,transparent);border-radius:inherit;pointer-events:none;opacity:0}
 /* 闪 0.5s 后渐隐：前 60% 满色、后 40% opacity 1→0 */
 @keyframes sk-row-flash{0%,60%{opacity:1}100%{opacity:0}}
 .sk-row-flash::before{animation:sk-row-flash 1s ease-out forwards}
-.sk-row:hover{background:var(--sk-hover)}
+.sk-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .sk-name{display:flex;flex-direction:column;flex:1 1 auto;min-width:88px}
 .sk-name-text{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sk-code{color:var(--sk-muted);font-size:11px}
+.sk-code{color:var(--dsw-alias-label-tertiary);font-size:11px}
 .sk-spark{flex:none;display:block}
 .sk-price{width:60px;text-align:right;font-weight:700}
 .sk-chg{width:62px;text-align:right}
-.sk-trigger{min-width:34px;text-align:center;border:1px solid;border-radius:999px;padding:0 6px;font-weight:700}
-.sk-trigger-none{color:var(--sk-muted-strong);border-color:var(--sk-border)}
-.sk-empty{padding:18px 10px;text-align:center;color:var(--sk-muted)}
-.sk-footer{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft);color:var(--sk-muted);font-size:11px}
-.sk-foot-left{max-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sk-foot-right{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sk-detail-header{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-bottom:1px solid var(--sk-border-soft)}
+.sk-trigger{min-width:34px;text-align:center;border:1px solid;border-radius:var(--dsw-radius-xs);padding:0 6px;font-weight:700}
+.sk-trigger-none{color:var(--dsw-alias-label-caption);border-color:var(--dsw-alias-border-l2)}
+.sk-empty{padding:16px 12px;text-align:center;color:var(--dsw-alias-label-tertiary)}
+.sk-statusbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:11px}
+.sk-status-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sk-status-actions{display:flex;align-items:center;gap:2px;flex:none}
+.sk-detail-header{display:flex;flex-direction:column;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .sk-detail-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.sk-back{align-self:flex-start;background:transparent;border:1px solid var(--sk-border);color:var(--sk-muted);border-radius:6px;padding:2px 8px;cursor:pointer;font:inherit}
-.sk-back:hover{color:var(--sk-text);border-color:var(--sk-cyan-border)}
-.sk-analyze{background:var(--sk-cyan-soft);border:1px solid var(--sk-cyan-border);color:var(--sk-cyan);border-radius:6px;padding:2px 10px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
-.sk-analyze:hover{filter:brightness(1.15)}
-.sk-analyze:disabled{opacity:.55;cursor:wait;filter:none}
+.sk-back{align-self:flex-start;background:transparent;border:0;color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm);height:24px;padding:0 8px 0 6px;cursor:pointer;font:inherit}
+.sk-back:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.sk-analyze{background:var(--dsw-alias-button-primary-fill);border:0;color:var(--dsw-alias-label-primary-foreground);border-radius:var(--dsw-radius-sm);height:24px;padding:0 12px;cursor:pointer;font:inherit;font-size:12px;font-weight:500;white-space:nowrap}
+.sk-analyze:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.sk-analyze:disabled{opacity:.4;cursor:not-allowed}
 .sk-detail-info{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .sk-detail-name{font-weight:700;font-size:13px}
 .sk-detail-price{font-weight:700;font-size:16px}
 .sk-detail-chg{font-size:12px}
-.sk-detail-trigger{font-size:11px;border:1px solid;border-radius:999px;padding:0 7px;font-weight:700}
-.sk-detail-targets{display:flex;gap:10px;flex-wrap:wrap}
+.sk-detail-trigger{font-size:11px;border:1px solid;border-radius:var(--dsw-radius-xs);padding:0 6px;font-weight:700}
+.sk-detail-targets{display:flex;gap:8px;flex-wrap:wrap}
 .sk-target{font-size:11px;white-space:nowrap}
-.sk-target-btn{background:transparent;border:1px dashed var(--sk-border);color:var(--sk-dim);border-radius:6px;padding:1px 8px;cursor:pointer;font:inherit;white-space:nowrap}
-.sk-target-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
-.sk-target-input{width:120px;background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:1px 6px;font:inherit;outline:none}
+.sk-target-btn{background:transparent;border:1px dashed var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm);padding:2px 8px;cursor:pointer;font:inherit;white-space:nowrap}
+.sk-target-btn:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
+.sk-target-input{width:120px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:2px 6px;font:inherit}
 .sk-flash{font-size:11px}
-.sk-periods{display:flex;gap:4px;flex-wrap:wrap}
-.sk-period{background:transparent;border:1px solid transparent;color:var(--sk-muted);border-radius:6px;padding:1px 8px;cursor:pointer;font:inherit}
-.sk-period:hover{color:var(--sk-text)}
-.sk-period-active{color:var(--sk-cyan);border-color:var(--sk-cyan-border);background:var(--sk-cyan-soft)}
+.sk-periods{display:flex;gap:2px;flex-wrap:wrap;padding:2px;background:var(--dsw-alias-interactive-bg-hover);border-radius:var(--dsw-radius-sm)}
+.sk-period{background:transparent;border:0;color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-xs);height:24px;padding:0 10px;cursor:pointer;font:inherit}
+.sk-period:hover{color:var(--dsw-alias-label-primary)}
+.sk-period-active{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:600;--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-soft)}
 .sk-chart-box{width:100%;position:relative}
 .sk-candles{display:block;margin:0 auto}
-.sk-chart-empty{padding:30px 10px;text-align:center;color:var(--sk-muted)}
-.sk-detail-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft);color:var(--sk-muted);font-size:11px}
+.sk-chart-empty{padding:32px 12px;text-align:center;color:var(--dsw-alias-label-tertiary)}
 .sk-pill{cursor:grab}
 .sk-pill:active{cursor:grabbing}
 .sk-header,.sk-detail-header{user-select:none;-webkit-user-select:none}
-.sk-ma-row{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.sk-ma-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .sk-ma-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
 .sk-zoom{display:inline-flex;gap:4px;align-items:center}
-.sk-zoom-btn{background:transparent;border:1px solid var(--sk-border);color:var(--sk-dim);border-radius:6px;min-width:22px;height:20px;padding:0 6px;cursor:pointer;font:inherit;font-size:11px;line-height:1;white-space:nowrap}
-.sk-zoom-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
-.sk-ma-chip{display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--sk-border);color:var(--sk-dim);border-radius:999px;padding:1px 8px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
-.sk-ma-chip:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
+.sk-zoom-btn{background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm);min-width:24px;height:24px;padding:0;cursor:pointer;font:inherit;font-size:11px;line-height:1;white-space:nowrap}
+.sk-zoom-btn:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
+.sk-ma-chip{display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm);height:20px;padding:0 8px;cursor:pointer;font:inherit;font-size:11px;white-space:nowrap}
+.sk-ma-chip:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
 .sk-ma-chip-off{opacity:.35;text-decoration:line-through}
 .sk-ma-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
-.sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--sk-panel-bg);display:flex;flex-direction:column;padding:10px;min-height:0}
+.sk-add-mask{position:absolute;inset:0;z-index:20;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;padding:12px;min-height:0}
 .sk-add-panel{display:flex;flex-direction:column;flex:1;min-height:0}
-.sk-add-bar{display:flex;gap:8px;padding:6px 10px;border-top:1px solid var(--sk-border-soft)}
-.sk-add-bar-btn{flex:1;background:transparent;border:1px dashed var(--sk-border);color:var(--sk-dim);border-radius:8px;padding:6px;cursor:pointer;font:inherit}
-.sk-add-bar-btn:hover{border-color:var(--sk-cyan-border);color:var(--sk-text)}
-.sk-add-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.sk-add-title{font-weight:700;color:var(--sk-cyan)}
+.sk-add-bar{display:flex;gap:8px;padding:6px 12px;border-top:1px solid var(--dsw-alias-border-l1)}
+.sk-add-bar-btn{flex:1;background:transparent;border:1px dashed var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:var(--dsw-radius-sm);padding:6px;cursor:pointer;font:inherit}
+.sk-add-bar-btn:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary)}
+.sk-add-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.sk-add-title{font-weight:700;color:var(--dsw-alias-state-business-primary)}
 .sk-add-menu{display:flex;flex-direction:column;gap:6px}
-.sk-add-menu-item{background:var(--sk-hover);border:1px solid var(--sk-border);color:var(--sk-text);border-radius:8px;padding:8px 10px;cursor:pointer;font:inherit;text-align:left}
-.sk-add-menu-item:hover{border-color:var(--sk-cyan-border)}
+.sk-add-menu-item{background:var(--dsw-alias-interactive-bg-hover);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:8px 10px;cursor:pointer;font:inherit;text-align:left}
+.sk-add-menu-item:hover{border-color:var(--dsw-alias-state-business-primary)}
 .sk-add-stock{display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
-.sk-add-input{background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:5px 8px;font:inherit;outline:none}
-.sk-rename-input{width:120px;background:var(--sk-hover);border:1px solid var(--sk-cyan-border);color:var(--sk-text);border-radius:6px;padding:1px 6px;font:inherit;outline:none}
-.sk-add-result-added .sk-add-result-name{color:var(--sk-muted)}
-.sk-add-result-badge{color:var(--sk-muted);font-size:10px;border:1px solid var(--sk-border);border-radius:999px;padding:0 5px;white-space:nowrap}
+.sk-add-input{background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:6px 8px;font:inherit}
+.sk-rename-input{width:120px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:2px 6px;font:inherit}
+.sk-add-result-added .sk-add-result-name{color:var(--dsw-alias-label-tertiary)}
+.sk-add-result-badge{color:var(--dsw-alias-label-tertiary);font-size:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xs);padding:0 4px;white-space:nowrap}
 .sk-add-results{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
-.sk-add-result{display:flex;gap:10px;align-items:center;background:transparent;border:none;color:var(--sk-text);border-radius:6px;padding:4px 8px;cursor:pointer;font:inherit;text-align:left}
-.sk-add-result:hover{background:var(--sk-hover)}
-.sk-add-result-code{color:var(--sk-muted);font-size:11px;width:52px}
+.sk-add-result{display:flex;gap:8px;align-items:center;background:transparent;border:none;color:var(--dsw-alias-label-primary);border-radius:var(--dsw-radius-sm);padding:4px 6px;cursor:pointer;font:inherit;text-align:left}
+.sk-add-result:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.sk-add-result-code{color:var(--dsw-alias-label-tertiary);font-size:11px;width:52px}
 .sk-add-result-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sk-add-empty{color:var(--sk-muted);text-align:center;padding:14px 0;font-size:11px}
+.sk-add-empty{color:var(--dsw-alias-label-tertiary);text-align:center;padding:14px 0;font-size:11px}
 .sk-add-group{display:flex;flex-direction:column;gap:8px}
-.sk-add-confirm{background:var(--sk-cyan-soft);border:1px solid var(--sk-cyan-border);color:var(--sk-cyan);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit;font-weight:600}
+.sk-panel,.sk-pill,.sk-fan-item,.sk-toast{font-variant-numeric:tabular-nums}
+.sk-code,.sk-add-result-code{font-family:var(--ds-font-family-code)}
+.sk-add-confirm{background:var(--dsw-alias-interactive-bg-hover-accent);border:1px solid var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary);border-radius:var(--dsw-radius-sm);padding:6px 12px;cursor:pointer;font:inherit;font-weight:600}
 `;
     document.head.appendChild(styleTag);
 
     // ------------------------------------------------------------------ 常量
-    const UP = "#ff1493";
-    const DOWN = "#00ff41";
-    const FLAT = "#8b93a7";
-    const YELLOW = "#ffcc00";
+    const UP = "var(--sk-up)";
+    const DOWN = "var(--sk-down)";
+    const FLAT = "var(--sk-flat)";
+    const YELLOW = "var(--dsw-alias-state-warn-label)";
     const STORAGE_KEY = "stocking.config.v1";
     const BASE = "/dsh-stock-watch";
     const DEFAULT_GROUPS = [
@@ -176,10 +226,53 @@ window.__ModuleLoader__.load({
     const SNAP_PX = 36;  // 拖拽吸附阈值：距边缘 SNAP_PX 内自动贴边
     const PANEL_W = 400;
     const MA_PERIODS = [5, 10, 20, 60];
-    const MA_COLOR = { 10: "#ffcc00", 20: "#ff5cd2", 60: "#00ff41" };
+    // MA 线色取自 DSH 静态色板（5 中性 / 10 琥珀 / 20 品牌蓝 / 60 绿），同样区分亮暗档
+    const MA_COLOR = {
+      light: { 5: "#61666b", 10: "#dd8629", 20: "#4176e6", 60: "#0d9550" },
+      dark: { 5: "#cfd3d6", 10: "#f7ad31", 20: "#5686fe", 60: "#35c46a" },
+    };
     const MA_STORAGE_KEY = "stocking.ma.v1";
+
+    // 内联 SVG 图标表：16×16、currentColor、1 描边，图形取自 DSH 图标集
+    //（packages/client/ui-primitives/src/icons，MIT），与 DSH 的界面图标语言保持一致。
+    const ICONS = {
+      refresh: [["path",{"d":"M14.5001 8C14.5 9.28552 14.1188 10.5422 13.4045 11.611C12.6903 12.6799 11.6752 13.5129 10.4875 14.0049C9.29982 14.4968 7.99295 14.6255 6.73212 14.3747C5.4713 14.124 4.31314 13.505 3.4041 12.596C2.49514 11.687 1.87614 10.5288 1.62537 9.26798C1.37459 8.00716 1.50331 6.70028 1.99525 5.51261C2.48719 4.32494 3.32025 3.30981 4.3891 2.59557C5.45795 1.88134 6.71458 1.50008 8.0001 1.5C9.9001 1.5 11.7001 2.3 13.0001 3.6L14.5001 5.1","stroke":"currentColor"}],["path",{"d":"M14.4999 1.5V5.1H10.8999","stroke":"currentColor"}]],
+      compact: [["path",{"opacity":"0.35","d":"M8 14.5C11.5899 14.5 14.5 11.5899 14.5 8C14.5 4.41015 11.5899 1.5 8 1.5C4.41015 1.5 1.5 4.41015 1.5 8C1.5 11.5899 4.41015 14.5 8 14.5Z","stroke":"currentColor"}],["path",{"d":"M8 1.5C8.85359 1.5 9.69883 1.66813 10.4874 1.99478C11.2761 2.32144 11.9926 2.80022 12.5962 3.40381C13.1998 4.00739 13.6786 4.72394 14.0052 5.51256C14.3319 6.30117 14.5 7.14641 14.5 8","stroke":"currentColor"}]],
+      light: [["path",{"d":"M8.00007 11.8117C10.1052 11.8117 11.8117 10.1052 11.8117 8.00007C11.8117 5.89499 10.1052 4.18848 8.00007 4.18848C5.89499 4.18848 4.18848 5.89499 4.18848 8.00007C4.18848 10.1052 5.89499 11.8117 8.00007 11.8117Z","stroke":"currentColor"}],["path",{"d":"M13.3899 8H15.1499","stroke":"currentColor"}],["path",{"d":"M11.8115 11.8115L13.0556 13.0556","stroke":"currentColor"}],["path",{"d":"M8 13.3901V15.1501","stroke":"currentColor"}],["path",{"d":"M4.18868 11.8115L2.94458 13.0556","stroke":"currentColor"}],["path",{"d":"M2.6101 8H0.850098","stroke":"currentColor"}],["path",{"d":"M4.18868 4.18856L2.94458 2.94446","stroke":"currentColor"}],["path",{"d":"M8 2.6101V0.850098","stroke":"currentColor"}],["path",{"d":"M11.8115 4.18856L13.0556 2.94446","stroke":"currentColor"}]],
+      dark: [["path",{"d":"M14.1127 8.70663C14.2576 8.60602 14.4627 8.71355 14.4386 8.88834C14.2901 9.96567 13.8731 10.9912 13.2229 11.8692C12.479 12.8735 11.4613 13.6421 10.2917 14.0829C9.1222 14.5236 7.85038 14.6179 6.62865 14.3543C5.40692 14.0907 4.28709 13.4805 3.40332 12.5967C2.51955 11.7129 1.90931 10.5931 1.64572 9.37135C1.38212 8.14962 1.47635 6.87779 1.91711 5.70825C2.35787 4.5387 3.12647 3.52103 4.13083 2.77714C5.00878 2.12689 6.03433 1.70994 7.11166 1.5614C7.28645 1.5373 7.39397 1.74238 7.29337 1.88734C6.68703 2.76099 6.37885 3.81241 6.42313 4.88345C6.47392 6.11194 6.98471 7.27645 7.85413 8.14587C8.72355 9.01529 9.88805 9.52608 11.1166 9.57687C12.1876 9.62114 13.239 9.31296 14.1127 8.70663Z","stroke":"currentColor"}]],
+      followsystem: [["path",{"d":"M13.5 2.5H2.5C1.94772 2.5 1.5 2.94772 1.5 3.5V11.5C1.5 12.0523 1.94772 12.5 2.5 12.5H13.5C14.0523 12.5 14.5 12.0523 14.5 11.5V3.5C14.5 2.94772 14.0523 2.5 13.5 2.5Z","stroke":"currentColor"}],["path",{"d":"M5 14.5H11","stroke":"currentColor"}]],
+      chevronleft: [["path",{"d":"M10 4L6.70711 7.29289C6.31658 7.68342 6.31658 8.31658 6.70711 8.70711L10 12","stroke":"currentColor"}]],
+      plus: [["path",{"d":"M8 2V14","stroke":"currentColor"}],["path",{"d":"M2 8H14","stroke":"currentColor"}]],
+      projectadd: [["path",{"d":"M5.54492 2.06738C5.91034 2.06754 6.26318 2.20149 6.53711 2.44336L7.94043 3.68164V4.7998C7.71462 4.74105 7.50367 4.63139 7.32617 4.47461L5.87598 3.19238C5.78477 3.11185 5.66658 3.06754 5.54492 3.06738H2.94922C2.67322 3.06738 2.44946 3.29145 2.44922 3.56738V12.4326C2.44927 12.7087 2.67311 12.9326 2.94922 12.9326H12.9326C13.2086 12.9325 13.4326 12.7086 13.4326 12.4326V8.53613H14.4326V12.4326C14.4326 13.2609 13.7609 13.9325 12.9326 13.9326H2.94922C2.12083 13.9326 1.44927 13.261 1.44922 12.4326V3.56738C1.44946 2.73916 2.12094 2.06738 2.94922 2.06738H5.54492Z","fill":"currentColor"}],["path",{"d":"M9.75977 4.50208H14.5509","stroke":"currentColor"}],["path",{"d":"M12.1492 6.89758L12.1492 2.10642","stroke":"currentColor"}]],
+      close: [["path",{"d":"M2.5 2.5L13.5 13.5","stroke":"currentColor"}],["path",{"d":"M13.5 2.5L2.5 13.5","stroke":"currentColor"}]],
+      gauge: [["path",{"d":"M3.4041 13.096C2.49514 12.187 1.87614 11.0288 1.62537 9.76798C1.37459 8.50716 1.50331 7.20028 1.99525 6.01261C2.48719 4.82494 3.32025 3.80981 4.3891 3.09557C5.45795 2.38134 6.71458 2.00008 8.0001 2C9.28563 2.00008 10.5423 2.38134 11.6111 3.09557C12.68 3.80981 13.513 4.82494 14.005 6.01261C14.4969 7.20028 14.6256 8.50716 14.3748 9.76798C14.1241 11.0288 13.5051 12.187 12.5961 13.096","stroke":"currentColor"}],["path",{"d":"M8 8.49994L11.6114 4.88855","stroke":"currentColor"}],["path",{"d":"M8 9.75C8.69036 9.75 9.25 9.19036 9.25 8.5C9.25 7.80964 8.69036 7.25 8 7.25C7.30964 7.25 6.75 7.80964 6.75 8.5C6.75 9.19036 7.30964 9.75 8 9.75Z","fill":"currentColor"}]],
+      checklist: [["path",{"d":"M3.75 6.25C4.7165 6.25 5.5 5.4665 5.5 4.5C5.5 3.5335 4.7165 2.75 3.75 2.75C2.7835 2.75 2 3.5335 2 4.5C2 5.4665 2.7835 6.25 3.75 6.25Z","stroke":"currentColor"}],["path",{"d":"M7.5 4.5H13.5","stroke":"currentColor"}],["path",{"d":"M3.75 13.25C4.7165 13.25 5.5 12.4665 5.5 11.5C5.5 10.5335 4.7165 9.75 3.75 9.75C2.7835 9.75 2 10.5335 2 11.5C2 12.4665 2.7835 13.25 3.75 13.25Z","stroke":"currentColor"}],["path",{"d":"M7.5 11.5H13.5","stroke":"currentColor"}]],
+      rightup: [["path",{"d":"M11.7256 2.77441C12.5538 2.77469 13.2256 3.44616 13.2256 4.27441V10.1416H12.2256V4.27441C12.2256 3.99844 12.0015 3.77469 11.7256 3.77441H5.7207V2.77441H11.7256Z","fill":"currentColor"}],["path",{"d":"M2.77441 13.2255L12.3756 3.62427","stroke":"currentColor"}]],
+      skill: [["path",{"d":"M4.57788 5.77124H10.7029","stroke":"currentColor"}],["path",{"d":"M4.57788 8.89819H7.91879","stroke":"currentColor"}],["path",{"d":"M12.1404 1.19446C12.9442 1.19446 13.6404 1.81999 13.6404 2.64465V8.89856H12.6404V2.64465C12.6404 2.42015 12.4411 2.19446 12.1404 2.19446H3.14038C2.83968 2.19446 2.64038 2.42015 2.64038 2.64465V13.0929C2.64082 13.3172 2.84001 13.5421 3.14038 13.5421H8.88159V14.5421H3.14038C2.33675 14.5421 1.6408 13.9172 1.64038 13.0929V2.64465C1.64038 1.81999 2.33651 1.19446 3.14038 1.19446H12.1404Z","fill":"currentColor"}],["path",{"d":"M12.0051 15.1056C12.0051 13.6395 10.8166 12.451 9.35059 12.451C10.8166 12.451 12.0051 11.2626 12.0051 9.79651C12.0051 11.2626 13.1936 12.451 14.6597 12.451C13.1936 12.451 12.0051 13.6395 12.0051 15.1056Z","stroke":"currentColor"}]],
+      fullscreen: [["path",{"d":"M2.33154 9.40576V13.1685C2.3318 13.4444 2.55556 13.6685 2.83154 13.6685H6.49463V14.6685H2.83154C2.00328 14.6685 1.3318 13.9967 1.33154 13.1685V9.40576H2.33154ZM13.1685 1.33154C13.9964 1.33199 14.6683 2.00352 14.6685 2.83154V6.40576H13.6685V2.83154C13.6683 2.5558 13.4441 2.33199 13.1685 2.33154H9.49463V1.33154H13.1685Z","fill":"currentColor"}],["path",{"d":"M9.4292 6.57077L13.914 2.08594","stroke":"currentColor"}],["path",{"d":"M6.57077 9.4292L2.08594 13.914","stroke":"currentColor"}]],
+      warning: [["path",{"d":"M8 14.5C11.5899 14.5 14.5 11.5899 14.5 8C14.5 4.41015 11.5899 1.5 8 1.5C4.41015 1.5 1.5 4.41015 1.5 8C1.5 11.5899 4.41015 14.5 8 14.5Z","stroke":"currentColor"}],["path",{"d":"M8 4.29199V9.79199","stroke":"currentColor"}],["path",{"d":"M8 10.708V11.708","stroke":"currentColor"}]],
+      minus: [["path",{"d":"M2 8H14","stroke":"currentColor"}]]
+    };
+
+    /** 渲染一枚 DSH 风格图标；size 小于 14 时用略粗的描边（与 DSH 的 medium 档一致）。 */
+    function icon(name, size) {
+      const artwork = ICONS[name] || [];
+      const px = size || 14;
+      return react.createElement("svg", {
+        className: "sk-ico",
+        width: px,
+        height: px,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: px <= 13 ? 1.3 : 1,
+        "aria-hidden": "true",
+      }, artwork.map((el, i) => react.createElement(el[0], Object.assign({ key: i }, el[1]))));
+    }
+
+
     function maColor(p, dark) {
-      return p === 5 ? (dark ? "#e5e7eb" : "#374151") : MA_COLOR[p] || "#ffcc00";
+      return MA_COLOR[dark ? "dark" : "light"][p] || PALETTE[dark ? "dark" : "light"].warn;
     }
 
     // ------------------------------------------------------------------ 工具
@@ -363,7 +456,7 @@ window.__ModuleLoader__.load({
         return x.toFixed(1) + "," + y.toFixed(1);
       });
       return react.createElement("svg", { className: "sk-spark", width, height, viewBox: "0 0 " + width + " " + height },
-        react.createElement("polyline", { points: coords.join(" "), fill: "none", stroke: color, strokeWidth: 1.4 }));
+        react.createElement("polyline", { points: coords.join(" "), fill: "none", strokeWidth: 1.4, style: { stroke: color } }));
     }
 
     // -------------------------------------------------------------- K线 SVG 兜底
@@ -398,8 +491,8 @@ window.__ModuleLoader__.load({
         const closeY = yOf(c.close);
         const top = Math.min(openY, closeY);
         const bodyH = Math.max(1, Math.abs(closeY - openY));
-        els.push(react.createElement("line", { key: "w" + i, x1: x, y1: yOf(c.high), x2: x, y2: yOf(c.low), stroke: color, strokeWidth: 1 }));
-        els.push(react.createElement("rect", { key: "b" + i, x: x - bodyW / 2, y: top, width: bodyW, height: bodyH, fill: color }));
+        els.push(react.createElement("line", { key: "w" + i, x1: x, y1: yOf(c.high), x2: x, y2: yOf(c.low), strokeWidth: 1, style: { stroke: color } }));
+        els.push(react.createElement("rect", { key: "b" + i, x: x - bodyW / 2, y: top, width: bodyW, height: bodyH, style: { fill: color } }));
       }
       const svgEl = react.createElement("svg", { className: "sk-candles", width, height, viewBox: "0 0 " + width + " " + height, style: fill ? { width: "100%", height: "100%", display: "block" } : undefined }, els);
       return fill
@@ -465,14 +558,14 @@ window.__ModuleLoader__.load({
         ? points[points.length - 1].p >= prevClose
         : true;
       const els = [];
-      els.push(react.createElement("polyline", { key: "price", points: pricePts, fill: "none", stroke: up ? UP : DOWN, strokeWidth: 1.6 }));
-      els.push(react.createElement("polyline", { key: "avg", points: avgPts, fill: "none", stroke: YELLOW, strokeWidth: 1 }));
+      els.push(react.createElement("polyline", { key: "price", points: pricePts, fill: "none", strokeWidth: 1.6, style: { stroke: up ? UP : DOWN } }));
+      els.push(react.createElement("polyline", { key: "avg", points: avgPts, fill: "none", strokeWidth: 1, style: { stroke: YELLOW } }));
       if (typeof prevClose === "number" && Number.isFinite(prevClose) && prevClose > 0) {
         const y = yOf(prevClose);
-        els.push(react.createElement("line", { key: "base", x1: pad, y1: y, x2: width - pad, y2: y, stroke: dark ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.4)", strokeWidth: 1, strokeDasharray: "4 3" }));
+        els.push(react.createElement("line", { key: "base", x1: pad, y1: y, x2: width - pad, y2: y, stroke: dark ? "rgba(255,255,255,0.45)" : "rgba(15,17,21,0.4)", strokeWidth: 1, strokeDasharray: "4 3" }));
       }
       // 交易时段标签（北京时间）：开盘 09:30 · 午后开盘 13:00 · 收盘 15:00
-      const labelFill = dark ? "rgba(255,255,255,0.5)" : "rgba(15,23,42,0.5)";
+      const labelFill = dark ? "rgba(255,255,255,0.5)" : "rgba(15,17,21,0.5)";
       const secOfDay = (ts) => ((ts % 86400) + 86400) % 86400;
       let gapIdx = -1;
       for (let i = 1; i < points.length; i++) {
@@ -510,6 +603,7 @@ window.__ModuleLoader__.load({
       const height = props.height || 240;
       const fitKey = props.fitKey || "";
       const dark = props.dark;
+      const pal = PALETTE[dark ? "dark" : "light"];
       const maVisible = props.maVisible || {};
       const fill = props.fill === true;
       const chartApiRef = props.chartApiRef || null;
@@ -522,25 +616,27 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
+        const crosshairColor = dark ? "rgba(86,134,254,0.5)" : "rgba(65,118,230,0.45)";
+        const crosshairLabel = dark ? "#34415b" : "#4176e6";
         const chart = lwc.createChart(el, {
           ...(fill ? { autoSize: true } : { width: el.clientWidth || 380, height }),
-          layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#9ca3af" : "#6b7280", fontSize: 10 },
-          grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" } },
-          rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)" },
-          timeScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)" },
+          layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#979da6" : "#61666b", fontSize: 10 },
+          grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,17,21,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,17,21,0.08)" } },
+          rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,17,21,0.14)" },
+          timeScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,17,21,0.14)" },
           crosshair: {
             mode: 0,
-            vertLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
-            horzLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
+            vertLine: { color: crosshairColor, labelBackgroundColor: crosshairLabel },
+            horzLine: { color: crosshairColor, labelBackgroundColor: crosshairLabel },
           },
         });
         const series = chart.addCandlestickSeries({
-          upColor: UP,
-          downColor: DOWN,
-          borderUpColor: UP,
-          borderDownColor: DOWN,
-          wickUpColor: UP,
-          wickDownColor: DOWN,
+          upColor: pal.up,
+          downColor: pal.down,
+          borderUpColor: pal.up,
+          borderDownColor: pal.down,
+          wickUpColor: pal.up,
+          wickDownColor: pal.down,
           priceFormat: { type: "price", precision: 2, minMove: 0.01 },
         });
         const vol = chart.addHistogramSeries({
@@ -612,6 +708,7 @@ window.__ModuleLoader__.load({
       const prevClose = props.prevClose;
       const height = props.height || 240;
       const dark = props.dark;
+      const pal = PALETTE[dark ? "dark" : "light"];
       const fitKey = props.fitKey || "";
       const fill = props.fill === true;
       const boxRef = useRef(null);
@@ -623,13 +720,15 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!lwc || !boxRef.current) return undefined;
         const el = boxRef.current;
+        const crosshairColor = dark ? "rgba(86,134,254,0.5)" : "rgba(65,118,230,0.45)";
+        const crosshairLabel = dark ? "#34415b" : "#4176e6";
         const chart = lwc.createChart(el, {
           ...(fill ? { autoSize: true } : { width: el.clientWidth || 380, height }),
-          layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#9ca3af" : "#6b7280", fontSize: 10 },
-          grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.08)" } },
-          rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)" },
+          layout: { background: { type: "solid", color: "transparent" }, textColor: dark ? "#979da6" : "#61666b", fontSize: 10 },
+          grid: { vertLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,17,21,0.08)" }, horzLines: { color: dark ? "rgba(255,255,255,0.06)" : "rgba(15,17,21,0.08)" } },
+          rightPriceScale: { borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,17,21,0.14)" },
           timeScale: {
-            borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,23,42,0.14)",
+            borderColor: dark ? "rgba(255,255,255,0.12)" : "rgba(15,17,21,0.14)",
             timeVisible: true,
             secondsVisible: false,
             // v4 中 tickMarkFormatter 属于 timeScale 选项（localization 里只有 timeFormatter）
@@ -637,8 +736,8 @@ window.__ModuleLoader__.load({
           },
           crosshair: {
             mode: 0,
-            vertLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
-            horzLine: { color: "rgba(34,211,238,0.4)", labelBackgroundColor: "#164e63" },
+            vertLine: { color: crosshairColor, labelBackgroundColor: crosshairLabel },
+            horzLine: { color: crosshairColor, labelBackgroundColor: crosshairLabel },
           },
           localization: {
             timeFormatter: (time) => beijingTickFormatter(time, 3),
@@ -651,7 +750,7 @@ window.__ModuleLoader__.load({
           priceFormat: { type: "price", precision: 2, minMove: 0.01 },
         });
         const avg = chart.addLineSeries({
-          color: YELLOW,
+          color: pal.warn,
           lineWidth: 1,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -689,7 +788,7 @@ window.__ModuleLoader__.load({
         const up = (typeof prevClose === "number" && Number.isFinite(prevClose) && prevClose > 0)
           ? lastP >= prevClose
           : lastP >= points[0].p;
-        line.applyOptions({ color: up ? UP : DOWN });
+        line.applyOptions({ color: up ? pal.up : pal.down });
         if (lastFitKey.current !== fitKey && chartRef.current) {
           lastFitKey.current = fitKey;
           chartRef.current.timeScale().fitContent();
@@ -706,7 +805,7 @@ window.__ModuleLoader__.load({
           try {
             baselineRef.current = line.createPriceLine({
               price: prevClose,
-              color: dark ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.4)",
+              color: dark ? "rgba(255,255,255,0.45)" : "rgba(15,17,21,0.4)",
               lineStyle: 2,
               lineWidth: 1,
               axisLabelVisible: true,
@@ -931,12 +1030,12 @@ window.__ModuleLoader__.load({
           let opened = true;
           try { sessionsSvc.open(sessionId); } catch { opened = false; }
           if (accepted) {
-            flash(opened ? "已在新对话发送「" + label + "」✓" : "「" + label + "」已发送 ✓ 未能自动跳转，请在会话列表查看", opened ? "#00ff41" : YELLOW);
+            flash(opened ? "已在新对话发送「" + label + "」" : "「" + label + "」已发送，未能自动跳转，请在会话列表查看", opened ? "var(--dsw-alias-state-success-primary)" : YELLOW);
           } else {
             flash("「" + label + "」请求未被接受", YELLOW);
           }
         } catch (e) {
-          flash((label || "分析") + "失败：" + ((e && e.message) || "未知错误"), "#ff5252");
+          flash((label || "分析") + "失败：" + ((e && e.message) || "未知错误"), "var(--dsw-alias-state-error-primary)");
         } finally {
           analyzingRef.current = false;
           setAnalyzing(false);
@@ -999,16 +1098,16 @@ window.__ModuleLoader__.load({
         const label = type === "buy" ? "买入" : "卖出";
         if (value.trim() === "") {
           applyTarget(code, type, undefined);
-          flash("已清除" + label + "目标价", "#888888");
+          flash("已清除" + label + "目标价", "var(--dsw-alias-label-secondary)");
           return;
         }
         const price = parseFloat(value);
         if (!Number.isFinite(price) || price <= 0) {
-          flash("✘ 价格无效，未保存", "#ff5555");
+          flash("价格无效，未保存", "var(--dsw-alias-state-error-primary)");
           return;
         }
         applyTarget(code, type, price);
-        flash("✔ 已设置" + label + "目标价 " + formatPrice(price));
+        flash("已设置" + label + "目标价 " + formatPrice(price));
       }, [targetEdit, view, applyTarget, flash]);
 
       // 首次展开时预加载 Lightweight Charts
@@ -1334,13 +1433,13 @@ window.__ModuleLoader__.load({
       const addStock = useCallback((code, name) => {
         const cur = (groupsCfg && groupsCfg[groupIndex]) || null;
         const inCurrent = cur ? cur.symbols.some((s) => s.code === code) : false;
-        if (inCurrent) { flash("该股票已添加", "#888888"); return; }
+        if (inCurrent) { flash("该股票已添加", "var(--dsw-alias-label-secondary)"); return; }
         const exists = (groupsCfg || []).some((g) => g.symbols.some((s) => s.code === code));
-        if (exists) { flash("已在其他分组：" + name, "#888888"); return; }
+        if (exists) { flash("已在其他分组：" + name, "var(--dsw-alias-label-secondary)"); return; }
         setGroupsCfg((prev) => (prev || []).map((g, gi) =>
           gi === groupIndex ? { ...g, symbols: [...g.symbols, { code }] } : g));
         const gname = (groupsCfg && groupsCfg[groupIndex]) ? groupsCfg[groupIndex].name : "";
-        flash("✔ 已添加 " + name + (gname ? " 到「" + gname + "」" : ""));
+        flash("已添加 " + name + (gname ? " 到「" + gname + "」" : ""));
         setStockQuery("");
         setStockResults(null);
         setShowAdd(null); // 添加完成 → 回到股票列表
@@ -1349,23 +1448,23 @@ window.__ModuleLoader__.load({
       // 添加分组（空名拦截，创建后切到新分组）
       const addGroup = useCallback(() => {
         const name = groupName.trim();
-        if (!name) { flash("分组名不能为空", "#ff5555"); return; }
+        if (!name) { flash("分组名不能为空", "var(--dsw-alias-state-error-primary)"); return; }
         const newIndex = (groupsCfg || []).length;
         setGroupsCfg((prev) => [...(prev || []), { name, symbols: [] }]);
         setGroupIndex(newIndex);
         setShowAdd(null);
-        flash("✔ 已创建分组「" + name + "」");
+        flash("已创建分组「" + name + "」");
       }, [groupName, groupsCfg, flash]);
 
       // 重命名分组（renameTarget 指定哪个分组）
       const commitRename = useCallback(() => {
         if (renameTarget === null) return;
         const name = (renameEdit || "").trim();
-        if (!name) { flash("分组名不能为空", "#ff5555"); return; }
+        if (!name) { flash("分组名不能为空", "var(--dsw-alias-state-error-primary)"); return; }
         setGroupsCfg((prev) => (prev || []).map((g, gi) => (gi === renameTarget ? { ...g, name } : g)));
         setRenameEdit(null);
         setRenameTarget(null);
-        flash("✔ 已重命名为「" + name + "」");
+        flash("已重命名为「" + name + "」");
       }, [renameEdit, renameTarget, flash]);
 
       // 从当前分组删除股票（同步移除列表行）
@@ -1375,14 +1474,14 @@ window.__ModuleLoader__.load({
         setData((d) => (d && Array.isArray(d.rows)
           ? { ...d, rows: d.rows.filter((r) => r.code !== code) }
           : d));
-        flash("已删除 " + name, "#888888");
+        flash("已删除 " + name, "var(--dsw-alias-label-secondary)");
       }, [groupIndex, flash]);
 
       // 删除分组（确认提示；至少保留一个分组；删除后修正当前分组下标）
       const deleteGroup = useCallback((idx) => {
         const g = groupsCfg && groupsCfg[idx];
         if (!g) return;
-        if ((groupsCfg || []).length <= 1) { flash("至少保留一个分组", "#ff5555"); return; }
+        if ((groupsCfg || []).length <= 1) { flash("至少保留一个分组", "var(--dsw-alias-state-error-primary)"); return; }
         if (!window.confirm("确定删除分组「" + g.name + "」吗？其包含 " + g.symbols.length + " 只股票")) return;
         setGroupsCfg((prev) => (prev || []).filter((_, gi) => gi !== idx));
         setGroupIndex((cur) => {
@@ -1392,7 +1491,7 @@ window.__ModuleLoader__.load({
         });
         setView(null);
         setShowAdd(null);
-        flash("已删除分组「" + g.name + "」", "#888888");
+        flash("已删除分组「" + g.name + "」", "var(--dsw-alias-label-secondary)");
       }, [groupsCfg, flash]);
 
       // 按住胶囊/面板头部拖动（按钮/输入框上不触发）
@@ -1451,7 +1550,22 @@ window.__ModuleLoader__.load({
         className: "sk-icon",
         onClick: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
         title: theme === "dark" ? "切换到浅色主题" : "切换到暗色主题",
-      }, theme === "dark" ? "☀️" : "🌙");
+      }, icon(theme === "dark" ? "light" : "dark"));
+
+      // 状态文案：有实时数据给更新时间，否则给失败/加载状态
+      const liveText = data && data.live
+        ? "更新 " + new Date(data.updatedAt).toLocaleTimeString("zh-CN", { hour12: false })
+        : (error ? "行情获取失败" : (data ? (data.diag && data.diag.firstError ? "行情失败：" + data.diag.firstError : "无实时数据") : "加载中…"));
+
+      // 状态栏（列表页与详情页共用）：左侧更新/加载状态，右侧倒计时、刷新、主题、折叠
+      const statusBar = (text, title) => react.createElement("div", { className: "sk-statusbar" },
+        react.createElement("span", { className: "sk-status-text", title: title }, text),
+        react.createElement("span", { className: "sk-status-actions" },
+          react.createElement("span", { className: "sk-countdown", title: "自动刷新倒计时" }, countdown + "s"),
+          react.createElement("button", { className: "sk-icon", title: "立即刷新", onClick: () => load(true) }, icon("refresh")),
+          themeToggle,
+          react.createElement("button", { className: "sk-icon", title: "折叠回胶囊", onClick: () => setExpanded(false) }, icon("compact"))));
+
 
       // 面板右下角拉伸手柄（列表页与详情页共用）
       const resizeHandles = react.createElement("div", { className: "sk-resize sk-resize-br", title: "拉伸面板", onMouseDown: (e) => startResize(e, "br") });
@@ -1462,7 +1576,7 @@ window.__ModuleLoader__.load({
           ? react.createElement("span", { className: "sk-pill-summary" },
               react.createElement("span", { style: { color: UP } }, upCount + "↑"),
               react.createElement("span", { style: { color: DOWN } }, downCount + "↓"))
-          : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…");
+          : react.createElement("span", { className: "sk-pill-loading" }, error ? icon("warning", 12) : "…");
         // 贴边吸附态：胶囊吸附到屏幕边缘后变为半球，显示涨/跌家数
         const dock = (() => {
           if (!pos) return null;
@@ -1479,25 +1593,25 @@ window.__ModuleLoader__.load({
               ? react.createElement("span", { className: "sk-dock-body" },
                   react.createElement("span", { className: "sk-dock-count", style: { color: UP } }, upCount + "↑"),
                   react.createElement("span", { className: "sk-dock-count", style: { color: DOWN } }, downCount + "↓"))
-              : react.createElement("span", { className: "sk-pill-loading" }, error ? "⚠" : "…"))
+              : react.createElement("span", { className: "sk-pill-loading" }, error ? icon("warning", 12) : "…"))
           : null;
         if (pillRef.current) pillWidthRef.current = pillRef.current.offsetWidth || PILL_W;
         const pill = react.createElement("div", {
           className: "sk-pill sk-theme-" + theme + (dock ? " sk-dock sk-dock-" + dock : ""),
+          "data-menu-material": "translucent",
           ref: pillRef,
           style: pos ? { left: pos.x, top: pos.y, right: "auto" } : undefined,
           onMouseDown: (e) => { startDrag(e, "pill"); closeFanNow(); },
           onMouseEnter: openFan,
+          title: "自选股盯盘：点击展开，可拖动，悬停弹出快捷分析",
+          role: "button",
           onClick: () => {
             if (suppressClickRef.current) { suppressClickRef.current = false; return; }
             closeFanNow();
             setExpanded(true);
           },
         },
-          dock ? dockBody : [
-            react.createElement("span", { key: "t", className: "sk-pill-title" }, "📈 自选股"),
-            summary,
-          ]);
+          dock ? dockBody : summary);
         // 悬浮扇形菜单（行情分析 / 每日复盘 / 涨停分析；功能暂未实现，仅展示）
         // 每日复盘时段：仅 15:00–次日 9:00 可点击（复盘需当日收盘后数据）；9:00–15:00 交易时段置灰
         const reviewState = (() => {
@@ -1514,25 +1628,26 @@ window.__ModuleLoader__.load({
         },
           ["quote", "review", "limit"].map((k) => {
             const meta = k === "quote"
-              ? { icon: "📊", label: "行情分析" }
+              ? { glyph: "gauge", label: "行情分析" }
               : k === "review"
-                ? { icon: "📅", label: "每日复盘" }
-                : { icon: "🚀", label: "涨停分析" };
+                ? { glyph: "checklist", label: "每日复盘" }
+                : { glyph: "rightup", label: "涨停分析" };
             const reviewDisabled = k === "review" && reviewState.disabled;
             return react.createElement("button", {
               key: k,
               className: "sk-fan-item" + (reviewDisabled ? " sk-fan-item-disabled" : ""),
+              "data-menu-material": "translucent",
               title: k === "review" ? reviewState.tip : "「" + meta.label + "」点击后新开对话分析",
               onMouseEnter: (e) => { cancelFanClose(); if (!reviewDisabled) hoverFanItem(e.currentTarget, true); },
               onMouseLeave: (e) => { if (!reviewDisabled) hoverFanItem(e.currentTarget, false); },
               onClick: () => { if (reviewDisabled) return; fanAction(k); },
             },
-              react.createElement("span", { className: "sk-fan-icon" }, meta.icon),
+              icon(meta.glyph, 14),
               react.createElement("span", null, meta.label));
           }));
         // 折叠态反馈 toast（建会话/发送结果提示）
         const toast = flashMsg
-          ? react.createElement("div", { className: "sk-toast sk-theme-" + theme, style: { color: flashMsg.color } }, flashMsg.text)
+          ? react.createElement("div", { className: "sk-toast sk-theme-" + theme, "data-menu-material": "translucent", style: { color: flashMsg.color } }, flashMsg.text)
           : null;
         return react.createElement(react.Fragment, null, pill, fan, toast);
       }
@@ -1555,9 +1670,10 @@ window.__ModuleLoader__.load({
           : (lwc
               ? react.createElement(LwcChart, { lwc, candles, height: 240, dark, fitKey: view.code + ":" + period, maVisible, fill: !!size, chartApiRef: klineChartApiRef })
               : react.createElement(SvgCandles, { candles, width: 380, height: 228, fill: !!size }));
+        // 仅在加载/失败时占用状态栏；成功后回到统一的更新时间文案
         const footText = isMinute
-          ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : (m && Array.isArray(m.points) ? m.points.length + " 个分时点" : "")))
-          : (k === null ? "K线加载中…" : (k && k.error ? "K线：" + k.error : (candles.length + " 根K线")));
+          ? (m === null ? "分时加载中…" : (m && m.error ? "分时：" + m.error : null))
+          : (k === null ? "K线加载中…" : (k && k.error ? "K线：" + k.error : null));
         const targetChip = (type) => {
           const label = type === "buy" ? "买入目标" : "卖出目标";
           const key = type === "buy" ? "buyPrice" : "sellPrice";
@@ -1591,9 +1707,8 @@ window.__ModuleLoader__.load({
         return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle },
           react.createElement("div", { className: "sk-detail-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
             react.createElement("div", { className: "sk-detail-top" },
-              react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, "← 返回列表"),
-              react.createElement("button", { className: "sk-analyze", onClick: () => analyzeStock(), disabled: analyzing }, analyzing ? "📈 分析中…" : "📈 投资研究报告"),
-              react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "最小化回胶囊" }, "—")),
+              react.createElement("button", { className: "sk-back", onClick: () => setView(null) }, icon("chevronleft", 14), "返回列表"),
+              react.createElement("button", { className: "sk-analyze", onClick: () => analyzeStock(), disabled: analyzing }, icon("skill", 14), analyzing ? "分析中…" : "投资研究报告")),
             react.createElement("div", { className: "sk-detail-info" },
               react.createElement("span", { className: "sk-detail-name" }, row ? row.name : view.code),
               react.createElement("span", { className: "sk-detail-price", style: { color } }, row && row.live ? formatPrice(row.price) : "--"),
@@ -1607,12 +1722,12 @@ window.__ModuleLoader__.load({
                   key: p,
                   className: "sk-period" + (p === period ? " sk-period-active" : ""),
                   onClick: () => setPeriod(p),
-                }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K")))),
+                }, p === "minute" ? "分时" : p === "day" ? "日K" : p === "week" ? "周K" : "月K"))),
             !isMinute && react.createElement("div", { className: "sk-ma-row" },
               react.createElement("span", { className: "sk-zoom" },
-                react.createElement("button", { className: "sk-zoom-btn", title: "缩小K线", onClick: () => zoomKline(1 / 1.35) }, "−"),
-                react.createElement("button", { className: "sk-zoom-btn", title: "放大K线", onClick: () => zoomKline(1.35) }, "+"),
-                react.createElement("button", { className: "sk-zoom-btn", title: "重置K线缩放", onClick: () => resetKline() }, "重置")),
+                react.createElement("button", { className: "sk-zoom-btn", title: "缩小K线", onClick: () => zoomKline(1 / 1.35) }, icon("minus", 12)),
+                react.createElement("button", { className: "sk-zoom-btn", title: "放大K线", onClick: () => zoomKline(1.35) }, icon("plus", 12)),
+                react.createElement("button", { className: "sk-zoom-btn", title: "重置K线缩放", onClick: () => resetKline() }, icon("fullscreen", 12))),
               react.createElement("span", { className: "sk-ma-chips" },
                 MA_PERIODS.map((p) => {
                   const on = !!maVisible[p];
@@ -1624,18 +1739,14 @@ window.__ModuleLoader__.load({
                   },
                     react.createElement("span", { className: "sk-ma-dot", style: { background: maColor(p, dark) } }),
                     "MA" + p);
-                }))),
+                })))),
           chartEl,
-          react.createElement("div", { className: "sk-detail-foot" },
-            react.createElement("span", null, footText),
-            react.createElement("span", { className: "sk-right" }, themeToggle,
-              react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"))),
+          statusBar(footText || liveText, data && data.diag ? (data.diag.firstError || "") : ""),
           resizeHandles);
       }
 
       // —— 列表视图 ——
       const header = react.createElement("div", { className: "sk-header", onMouseDown: (e) => startDrag(e, "panel"), title: "按住此处可拖动面板" },
-        react.createElement("span", { className: "sk-title" }, "📈 自选股盯盘"),
         react.createElement("span", { className: "sk-tabs" },
           groups.map((g, i) =>
             react.createElement("span", { key: i, className: "sk-tab-wrap" + (i === groupIndex ? " sk-tab-wrap-active" : "") },
@@ -1654,17 +1765,13 @@ window.__ModuleLoader__.load({
                     onClick: () => setGroupIndex(i),
                     onDoubleClick: (e) => { e.preventDefault(); setRenameTarget(i); setRenameEdit(g.name); },
                     title: "双击重命名「" + g.name + "」",
-                  }, g.name + (g.count > 0 ? " (" + g.count + ")" : "")),
+                  }, g.name, g.count > 0 ? react.createElement("span", { className: "sk-tab-count" }, g.count) : null),
               react.createElement("button", {
                 className: "sk-tab-del",
                 title: "删除分组「" + g.name + "」",
                 onClick: (e) => { e.stopPropagation(); deleteGroup(i); },
-              }, "✕")))),
-        react.createElement("span", { className: "sk-right" },
-          react.createElement("span", { className: "sk-countdown" }, "⏱" + countdown + "s"),
-          themeToggle,
-          react.createElement("button", { className: "sk-icon", onClick: () => load(true), title: "立即刷新" }, "⟳"),
-          react.createElement("button", { className: "sk-icon", onClick: () => setExpanded(false), title: "折叠" }, "—")));
+              }, icon("close", 12))))),
+        null);
 
       // 面板定高时列表区域 flex:1 1 0 强制填满并滚动
       const rowsFill = size ? { flex: "1 1 0", minHeight: 0 } : undefined;
@@ -1680,7 +1787,7 @@ window.__ModuleLoader__.load({
               const prev = prevPricesRef.current[row.code];
               const flashBg = (() => {
                 if (!row.live || prev === undefined || prev === row.price) return undefined;
-                return row.price > prev ? "hsla(0, 85%, 60%, 0.28)" : "hsla(140, 70%, 50%, 0.28)";
+                return row.price > prev ? "color-mix(in srgb, var(--sk-up) 25%, transparent)" : "color-mix(in srgb, var(--sk-down) 25%, transparent)";
               })();
               if (row.live && prev !== undefined && prev !== row.price) {
                 const el = rowRefs.current[row.code];
@@ -1693,7 +1800,7 @@ window.__ModuleLoader__.load({
               prevPricesRef.current[row.code] = row.price;
               return react.createElement("div", { key: row.code, ref: (el) => { if (el) rowRefs.current[row.code] = el; }, className: "sk-row" + (flashBg ? " sk-row-flash" : ""), style: flashBg ? { "--row-flash-bg": flashBg } : undefined, onClick: () => setView({ code: row.code }), title: tip },
                 react.createElement("span", { className: "sk-name" },
-                  react.createElement("span", { className: "sk-name-text", style: { color: row.live ? "var(--sk-text)" : FLAT } }, row.name),
+                  react.createElement("span", { className: "sk-name-text", style: { color: row.live ? "var(--dsw-alias-label-primary)" : FLAT } }, row.name),
                   react.createElement("span", { className: "sk-code" }, row.code.replace(/^(sh|sz|hk|us)/, ""))),
                 react.createElement(Sparkline, { prices: row.minutes, color }),
                 react.createElement("span", { className: "sk-price", style: { color } }, row.live ? formatPrice(row.price) : "--"),
@@ -1705,17 +1812,10 @@ window.__ModuleLoader__.load({
                   className: "sk-del",
                   title: "从列表删除 " + row.name,
                   onClick: (e) => { e.stopPropagation(); removeStock(row.code, row.name); },
-                }, "✕"));
+                }, icon("close", 12)));
             }));
 
-      const footer = react.createElement("div", { className: "sk-footer" },
-        react.createElement("span", { className: "sk-foot-left", title: data && data.diag && data.diag.firstError ? data.diag.firstError : "" },
-          data && data.live ? "腾讯行情" : (error ? "行情获取失败" : (data ? (data.diag && data.diag.firstError ? "行情失败：" + data.diag.firstError : "无实时数据") : "—"))),
-        react.createElement("span", { className: "sk-foot-mid" }, data ? "更新 " + new Date(data.updatedAt).toLocaleTimeString("zh-CN", { hour12: false }) : ""),
-        react.createElement("span", { className: "sk-foot-right", title: data && data.config ? (data.config.path || "") : "" },
-          data && data.config && data.config.source === "local"
-            ? "配置：localStorage"
-            : (data && data.config && data.config.source === "file" ? "~/.stocking/settings.json" : "默认分组")));
+
 
       // 添加面板（菜单 / 股票搜索 / 分组创建）
       const addPanel = showAdd ? react.createElement("div", { className: "sk-add-mask" },
@@ -1723,7 +1823,7 @@ window.__ModuleLoader__.load({
           react.createElement("div", { className: "sk-add-head" },
             react.createElement("span", { className: "sk-add-title" },
               showAdd === "stock" ? "添加股票" : "添加分组"),
-            react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd(null), title: "关闭" }, "✕")),
+            react.createElement("button", { className: "sk-icon", onClick: () => setShowAdd(null), title: "关闭" }, icon("close"))),
           showAdd === "stock" && react.createElement("div", { className: "sk-add-stock" },
             react.createElement("input", {
               className: "sk-add-input",
@@ -1762,10 +1862,10 @@ window.__ModuleLoader__.load({
 
       // 分组列表底部：添加股票 / 分组 按钮
       const addBar = react.createElement("div", { className: "sk-add-bar" },
-        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("stock") }, "＋ 添加股票"),
-        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("group") }, "🗂 添加分组"));
+        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("stock") }, icon("plus", 14), "添加股票"),
+        react.createElement("button", { className: "sk-add-bar-btn", onClick: () => setShowAdd("group") }, icon("projectadd", 14), "添加分组"));
 
-      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, footer, resizeHandles, addPanel);
+      return react.createElement("div", { className: "sk-panel sk-theme-" + theme, style: panelStyle }, header, body, addBar, statusBar(liveText), resizeHandles, addPanel);
     }
 
     // ------------------------------------------------------------------ 插件主体
