@@ -301,45 +301,134 @@ window.__ModuleLoader__.load({
       return p;
     }
 
-    // ----------------------------------------------- 扇形菜单几何
-    // 按胶囊中心相对屏幕的位置选择展开象限（优先空间大的一侧），半径按可用空间钳制，保证不越出屏幕。
-    // 角度 0°=右、90°=下（屏幕坐标系 y 向下）；3 个选项围绕象限对角方向 ±35° 展开。
-    function fanGeometry(pos, pillW, pillH) {
+    // ----------------------------------------------- 悬浮菜单布局
+    // 自适应空间布局（不再用圆弧）：把选项铺进胶囊周围的自由空间，成排、边对齐、间距一致。
+    //   贴左右边 → 在自由侧竖排全部；贴上/下边 → 左右各一个 + 上下自由方向一个；
+    //   贴角     → 自由侧竖排（前 n-1 个）+ 上下自由方向一个；其余位置 → 空间更大的一侧竖排。
+    // 每排统一间距，整排按视口边距钳制，保证不越界。
+    const MENU_MARGIN = 12;
+    const MENU_GAP = 8;
+    const MENU_HUG = 24;
+
+    function fanLayout(pos, pillW, pillH, sizes) {
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const cx = pos ? pos.x + pillW / 2 : vw - PILL_W / 2 - 16;
-      const cy = pos ? pos.y + pillH / 2 : 14 + pillH / 2;
-      const left = cx;
-      const right = vw - cx;
-      const top = cy;
-      const bottom = vh - cy;
-      const hDir = right >= left ? 1 : -1; // 1=向右展开，-1=向左
-      const vDir = bottom >= top ? 1 : -1; // 1=向下展开，-1=向上
-      const hSpace = hDir === 1 ? right : left;
-      const vSpace = vDir === 1 ? bottom : top;
-      let base = 0;
-      if (hDir === 1 && vDir === 1) base = 45;
-      else if (hDir === 1 && vDir === -1) base = -45;
-      else if (hDir === -1 && vDir === 1) base = 135;
-      else base = 225;
-      const R = Math.max(44, Math.min(128, hSpace - 40, vSpace - 40));
-      // 选项估算半宽/半高，用于逐项屏幕边界钳制（贴边时接近水平/垂直方向的选项不会推出屏外）
-      const HALF_W = 48;
-      const HALF_H = 18;
-      const EDGE = 6;
+      const n = sizes.length;
+      const M = MENU_MARGIN;
+      const G = MENU_GAP;
+      const px = pos ? Math.max(0, Math.min(pos.x, vw - pillW)) : vw - pillW - 16;
+      const py = pos ? Math.max(0, Math.min(pos.y, vh - pillH)) : 14;
+      const hugL = px <= MENU_HUG;
+      const hugR = vw - (px + pillW) <= MENU_HUG;
+      const hugT = py <= MENU_HUG;
+      const hugB = vh - (py + pillH) <= MENU_HUG;
+      const rightSpace = vw - (px + pillW) - M;
+      const leftSpace = px - M;
+      const downSpace = vh - (py + pillH) - M;
+      const upSpace = py - M;
+      const side = rightSpace >= leftSpace ? "right" : "left";
+      const vSide = downSpace >= upSpace ? "down" : "up";
+      const clampY = (y, h) => Math.max(M, Math.min(vh - M - h, y));
+      const clampX = (x, w) => Math.max(M, Math.min(vw - M - w, x));
+      const boxes = new Array(n);
+      const runH = (idxs) => idxs.reduce((s, i) => s + sizes[i].h, 0) + G * (idxs.length - 1);
+
+      // 竖排：右排左边对齐（x 相同），左排右边对齐；整排竖直方向钳制
+      const column = (idxs, top) => {
+        let y = clampY(top, runH(idxs));
+        for (const i of idxs) {
+          const w = sizes[i].w;
+          const x = side === "right" ? px + pillW + G : px - G - w;
+          boxes[i] = { x: clampX(x, w), y, w, h: sizes[i].h };
+          y += sizes[i].h + G;
+        }
+      };
+      // 与胶囊同一排、垂直居中的一个选项；atX 给出时用它（同一排依次排列）
+      const beside = (i, s, atX) => {
+        const w = sizes[i].w;
+        const h = sizes[i].h;
+        const x = atX === undefined ? (s === "right" ? px + pillW + G : px - G - w) : atX;
+        boxes[i] = { x: clampX(x, w), y: clampY(py + (pillH - h) / 2, h), w, h };
+      };
+      // 上下自由方向的一个选项（与胶囊或同排首项左对齐）：候选位置依次尝试，放不下才退回钳制
+      const stacked = (i, ref) => {
+        const w = sizes[i].w;
+        const h = sizes[i].h;
+        const x = clampX(ref && ref.x !== undefined ? ref.x : px, w);
+        const cands = ref && ref.y !== undefined
+          ? [ref.y, ref.y > py ? ref.y - h - G : ref.y + h + G]
+          : [vSide === "down" ? py + pillH + G : py - G - h, vSide === "down" ? py - G - h : py + pillH + G];
+        for (const y of cands) {
+          if (y >= M && y + h <= vh - M) { boxes[i] = { x, y, w, h }; return; }
+        }
+        boxes[i] = { x, y: clampY(cands[0], h), w, h };
+      };
+      const all = (a, b) => Array.from({ length: Math.max(0, b - a) }, (_, k) => a + k);
+      const lastH = sizes[n - 1] ? sizes[n - 1].h : 0;
+      const fitsV = (vSide === "down" ? downSpace : upSpace) >= lastH + G;
+
+      if ((hugL || hugR) && (hugT || hugB)) {
+        // 贴角：自由侧横向排前 n-1 个（与胶囊同一排），最后一个接在下方/上方、与首项对齐
+        const head = all(0, n - 1);
+        let cursor = side === "right" ? px + pillW + G : px - G;
+        let rowCount = 0;
+        const rowFits = (w) => (side === "right" ? cursor + w <= vw - M : cursor - w >= M);
+        for (const i of head) {
+          const w = sizes[i].w;
+          if (!rowFits(w)) break; // 放不下的留给上下方向，接在首项下方/上方
+          beside(i, side, side === "right" ? cursor : cursor - w);
+          cursor += side === "right" ? w + G : -(w + G);
+          rowCount += 1;
+        }
+        const first = boxes[0];
+        for (const i of head) {
+          if (i < rowCount || boxes[i]) continue;
+          const w = sizes[i].w;
+          const h = sizes[i].h;
+          const x = clampX(first ? first.x : px, w);
+          const prev = boxes[i - 1];
+          const y = hugT ? (prev ? prev.y + prev.h + G : py + pillH + G) : (prev ? prev.y - G - h : py - G - h);
+          if (y >= M && y + h <= vh - M) boxes[i] = { x, y, w, h };
+          else stacked(i, { x, y });
+        }
+        const lastRow = boxes[rowCount - 1] || first;
+        stacked(n - 1, { x: first ? first.x : px, y: hugT ? (lastRow ? lastRow.y + lastRow.h + G : py + pillH + G) : (lastRow ? lastRow.y - G - lastH : py - G - lastH) });
+      } else if (hugL || hugR) {
+        // 贴左右边：自由侧竖排全部，与胶囊上沿对齐
+        column(all(0, n), py);
+      } else if (hugT || hugB) {
+        // 贴上/下边：左右各一个（与胶囊同一排），最后一个放上下自由方向
+        const opp = side === "right" ? "left" : "right";
+        const oppSpace = side === "right" ? leftSpace : rightSpace;
+        beside(0, side);
+        if (n > 1) {
+          const w1 = sizes[1].w;
+          const oppFits = opp === "right" ? px + pillW + G + w1 <= vw - M : px - G - w1 >= M;
+          if (oppFits) beside(1, opp);
+          else beside(1, side, side === "right" ? boxes[0].x + sizes[0].w + G : boxes[0].x - G - w1);
+        }
+        if (n > 2) {
+          if (fitsV) stacked(2);
+          else stacked(2, { x: boxes[1].x, y: boxes[1].y + sizes[1].h + G });
+        }
+      } else {
+        // 屏幕中间：在空间更大的一侧竖排，整排与胶囊垂直居中
+        const idxs = all(0, n);
+        column(idxs, py + (pillH - runH(idxs)) / 2);
+      }
+
+      const rects = boxes.map((b) => ({ x: b.x, y: b.y, x2: b.x + b.w, y2: b.y + b.h }));
+      rects.push({ x: px, y: py, x2: px + pillW, y2: py + pillH });
+      const x1 = Math.max(0, Math.min(...rects.map((r) => r.x)) - MENU_HUG);
+      const y1 = Math.max(0, Math.min(...rects.map((r) => r.y)) - MENU_HUG);
+      const x2 = Math.min(vw, Math.max(...rects.map((r) => r.x2)) + MENU_HUG);
+      const y2 = Math.min(vh, Math.max(...rects.map((r) => r.y2)) + MENU_HUG);
       return {
-        cx,
-        cy,
-        hDir,
-        vDir,
-        items: [base - 35, base, base + 35].map((a) => {
-          const rad = (a * Math.PI) / 180;
-          let x = cx + Math.cos(rad) * R;
-          let y = cy + Math.sin(rad) * R;
-          x = Math.min(vw - HALF_W - EDGE, Math.max(HALF_W + EDGE, x));
-          y = Math.min(vh - HALF_H - EDGE, Math.max(HALF_H + EDGE, y));
-          return { dx: x - cx, dy: y - cy, angle: a };
-        }),
+        x1,
+        y1,
+        x2,
+        y2,
+        items: boxes.map((b) => ({ cx: b.x + b.w / 2, cy: b.y + b.h / 2 })),
       };
     }
 
@@ -1053,7 +1142,7 @@ window.__ModuleLoader__.load({
         const items = Array.from(box.querySelectorAll(".sk-fan-item"));
         const g = gsapLibRef.current;
         if (g && items.length) {
-          g.set(items, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 0.3, autoAlpha: 0, rotation: -8, clearProps: "left,top" });
+          g.set(items, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 0.6, autoAlpha: 0, clearProps: "left,top" });
         } else {
           for (const el of items) { el.style.opacity = "0"; }
         }
@@ -1084,7 +1173,7 @@ window.__ModuleLoader__.load({
         g.to(el, { y: on ? "-=2.5" : "+=2.5", scale: on ? 1.05 : 1, duration: 0.18, ease: "power2.out", overwrite: "auto" });
       }, []);
 
-      // 扇形菜单动画：打开时从胶囊中心扇形展开（GSAP back.out + 交错），关闭时收回
+      // 悬浮菜单动画：打开时从胶囊中心展开到排好的位置（GSAP 交错），关闭时收回
       useEffect(() => {
         if (expanded) return undefined;
         const box = fanBoxRef.current;
@@ -1097,36 +1186,24 @@ window.__ModuleLoader__.load({
         const pill = pillRef.current;
         const pw = pill ? pill.offsetWidth : PILL_W;
         const ph = pill ? pill.offsetHeight : 30;
-        const geo = fanGeometry(pos, pw, ph);
+        const sizes = items.map((el) => ({ w: el.offsetWidth || 96, h: el.offsetHeight || 26 }));
+        const layout = fanLayout(pos, pw, ph, sizes);
         const gsap = gsapLibRef.current;
         const reduceMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        // 展开扇形区域（悬浮热区）：覆盖「胶囊朝向扇形的那条边 → 选项 + 边距」。
-        // 返回区域左上角视口坐标，供选项绝对定位换算（容器已从全屏缩为区域）。
+        // 悬浮热区：选项外框的并集 + 胶囊，四角留边距，便于指针在胶囊与选项之间移动
         const applyFanRegion = () => {
-          const pr = pill ? pill.getBoundingClientRect() : { left: geo.cx, right: geo.cx, top: geo.cy, bottom: geo.cy };
-          const M = 36, HW = 56, HH = 24; // 热区边距加大：贴边/曲线移动/短暂停顿不易出区
-          let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-          for (const it of geo.items) {
-            x1 = Math.min(x1, geo.cx + it.dx - HW);
-            y1 = Math.min(y1, geo.cy + it.dy - HH);
-            x2 = Math.max(x2, geo.cx + it.dx + HW);
-            y2 = Math.max(y2, geo.cy + it.dy + HH);
-          }
-          const feX = geo.hDir === 1 ? pr.left : pr.right;
-          const feY = geo.vDir === 1 ? pr.top : pr.bottom;
-          x1 = Math.min(x1, feX) - M;
-          x2 = Math.max(x2, feX) + M;
-          y1 = Math.min(y1, feY) - M;
-          y2 = Math.max(y2, feY) + M;
-          box.style.left = x1 + "px";
-          box.style.top = y1 + "px";
-          box.style.width = (x2 - x1) + "px";
-          box.style.height = (y2 - y1) + "px";
+          box.style.left = layout.x1 + "px";
+          box.style.top = layout.y1 + "px";
+          box.style.width = (layout.x2 - layout.x1) + "px";
+          box.style.height = (layout.y2 - layout.y1) + "px";
           box.style.pointerEvents = "auto";
-          return { x1, y1 };
+        };
+        const place = (el, it) => {
+          el.style.left = (it.cx - layout.x1) + "px";
+          el.style.top = (it.cy - layout.y1) + "px";
         };
         if (fanOpen && wasOpen) {
-          // 已展开中：位置/尺寸变化时仅跟随刷新热区（不重播入场动画），避免胶囊移动后热区失配
+          // 已展开中：位置/尺寸变化时仅跟随刷新（不重播入场动画）
           applyFanRegion();
           return undefined;
         }
@@ -1136,44 +1213,44 @@ window.__ModuleLoader__.load({
           if (gsap && !reduceMotion) {
             const tl = gsap.timeline({ onComplete: () => { box.style.visibility = "hidden"; } });
             tl.to(items, {
-              x: 0, y: 0, scale: 0.3, autoAlpha: 0, rotation: -8,
-              duration: 0.22, ease: "power2.in", stagger: 0.03, overwrite: "auto",
+              x: 0, y: 0, scale: 0.6, autoAlpha: 0, duration: 0.18, ease: "power2.in", stagger: 0.02, overwrite: "auto",
             });
             return () => { tl.kill(); };
           }
           box.style.visibility = "hidden";
           return undefined;
         }
-        // 打开：选项先叠在胶囊中心，再交错扇形展开（left/top 为相对容器的坐标）
+        const pr = pill ? pill.getBoundingClientRect() : null;
+        const anchorX = pr ? pr.left + pr.width / 2 : layout.items[0].cx;
+        const anchorY = pr ? pr.top + pr.height / 2 : layout.items[0].cy;
         if (gsap && !reduceMotion) {
           box.style.visibility = "visible";
-          const { x1, y1 } = applyFanRegion();
-          gsap.set(items, { xPercent: -50, yPercent: -50, left: geo.cx - x1, top: geo.cy - y1, rotation: -10, scale: 0.35, autoAlpha: 0, x: 0, y: 0 });
+          applyFanRegion();
+          items.forEach((el, i) => {
+            const it = layout.items[i];
+            place(el, it);
+            gsap.set(el, { xPercent: -50, yPercent: -50, x: anchorX - it.cx, y: anchorY - it.cy, scale: 0.6, autoAlpha: 0 });
+          });
           const tl = gsap.timeline({
             onComplete: () => {
-              // 动画结束后按禁用态补一次变暗（CSS opacity 会被 GSAP 内联 opacity:1 覆盖）
+              // 动画结束后按禁用态补一次变暗（CSS opacity 会被 GSAP 内联 opacity 覆盖）
               for (const el of items) {
-                if (el.classList.contains("sk-fan-item-disabled")) gsap.set(el, { opacity: 0.4 });
+                if (el.classList.contains("sk-fan-item-disabled")) gsap.set(el, { opacity: 0.45 });
               }
             },
           });
-          geo.items.forEach((it, i) => {
-            tl.to(items[i], {
-              x: it.dx, y: it.dy, scale: 1, autoAlpha: 1, rotation: 0,
-              duration: 0.5, ease: "back.out(1.7)",
-            }, i * 0.06);
+          layout.items.forEach((it, i) => {
+            tl.to(items[i], { x: 0, y: 0, scale: 1, autoAlpha: 1, duration: 0.32, ease: "power3.out" }, i * 0.05);
           });
           return () => { tl.kill(); };
         }
         // 兜底（无 GSAP 或用户偏好减少动态）：直接落位
         box.style.visibility = "visible";
-        const origin = applyFanRegion();
+        applyFanRegion();
         items.forEach((el, i) => {
-          const it = geo.items[i] || { dx: 0, dy: 0 };
-          el.style.left = (geo.cx - origin.x1) + "px";
-          el.style.top = (geo.cy - origin.y1) + "px";
-          el.style.transform = "translate(" + it.dx + "px, " + it.dy + "px) translate(-50%, -50%) scale(1)";
-          el.style.opacity = el.classList.contains("sk-fan-item-disabled") ? "0.4" : "1";
+          place(el, layout.items[i]);
+          el.style.transform = "translate(-50%, -50%) scale(1)";
+          el.style.opacity = el.classList.contains("sk-fan-item-disabled") ? "0.45" : "1";
         });
         return undefined;
       }, [fanOpen, expanded, pos]);
@@ -1184,9 +1261,12 @@ window.__ModuleLoader__.load({
         if (!fanOpen || expanded) return undefined;
         const within = (x, y, r) => r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
         const onMove = (e) => {
-          const inPill = within(e.clientX, e.clientY, pillRef.current ? pillRef.current.getBoundingClientRect() : null);
-          const inFan = within(e.clientX, e.clientY, fanBoxRef.current ? fanBoxRef.current.getBoundingClientRect() : null);
-          if (inPill || inFan) cancelFanClose();
+          const pill = pillRef.current;
+          const box = fanBoxRef.current;
+          const items = box ? Array.from(box.querySelectorAll(".sk-fan-item")) : [];
+          const inPill = within(e.clientX, e.clientY, pill ? pill.getBoundingClientRect() : null);
+          const inItem = items.some((el) => within(e.clientX, e.clientY, el.getBoundingClientRect()));
+          if (inPill || inItem) cancelFanClose();
           else scheduleFanClose();
         };
         window.addEventListener("mousemove", onMove);
