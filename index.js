@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promptForMessage } from "./prompts.js";
 
 const name = "dsh-stock-watch";
 /** Required services: webServer（HTTP 路由）。 */
@@ -67,48 +68,10 @@ function ensureUserSkills() {
 
 let stocksCache = null;
 
-// ---------------------------------------------------------------------------
-// 扇形菜单注入提示词（不直接暴露：客户端只发送「每日复盘/行情分析/涨停分析」几个字，
-// 完整提示词由系统提示条件式注入——仅当用户消息匹配对应关键词时生效）
-// ---------------------------------------------------------------------------
-const FAN_PROMPTS = {
-  每日复盘: `请作为专业的A股短线复盘分析师，帮我完成今天的盘后复盘。请基于以下框架：
+/** 本插件自带的 agent 预设 id（声明见 presets/stock-analyst.patch.yml）。 */
+const ANALYSIS_PRESET_ID = "stock-analyst";
 
-1. 市场概览：指数表现、成交量变化、涨跌家数分布。不要只报数据，要点出"这说明什么"。
-
-2. 涨停梯队：今日涨停多少家？炸板多少家？连板高度到几板了？首板、二板、三板各多少？晋级率如何？
-
-3. 主线与轮动：今天市场围绕哪些方向在交易？哪些是主线、哪些只是轮动？哪些方向冲高回落？
-
-4. 情绪判断：今天的情绪是在加强、分化、修复还是退潮？赚钱效应如何？
-
-5. 核心个股反馈：龙头股、中军股的表现如何？从它们的走势能看出什么？
-
-6. 明日关键观察：明天最需要盯住的变量是什么？不要只说"关注市场变化"，要说具体看什么指标。
-
-输出格式用7个板块，每个板块一句话结论。要有明确判断，不要模棱两可。`,
-  行情分析: `获取A股实时行情数据，给出整体分析：
-
-市场温度：当前是进攻还是防守格局？一句话定性。
-
-量价关系：放量还是缩量？量价是否配合？说明什么？
-
-结构分化：大小盘风格如何？哪些板块在领涨/领跌？
-
-操作基调：此刻适合积极、谨慎还是观望？给明确结论。
-输出要求：每项不超过两行，总字数控制在200字以内。`,
-  涨停分析: `基于今日涨停数据（涨停家数、连板高度、炸板率、涨停板块分布），分析：
-
-情绪热度（亢奋/正常/冰点）
-
-主线板块（涨停最集中方向）
-
-龙头高度及晋级情况
-
-明天接力风险或机会
-每项一句话，总字数控制在150字以内。`,
-};
-
+// 提示词文本已迁至 prompts.js：由 stock-analyst 预设注入到本插件新建的会话，不再改全局系统提示。
 const MINUTE_API = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}&r=0.1";
 const KLINE_API = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{count},qfq";
 
@@ -636,36 +599,13 @@ function apply(ctx) {
     });
   });
 
-  // 一键分析配套：客户端只发送简短消息「分析{公司名}（代码）」，这里注入一条条件式系统指令，
-  // 保证任何会话中出现「分析某家公司」类请求时，依次使用 investment-research / frontend-design 两个技能。
-  // 条件式措辞：仅对分析上市公司的请求生效，其它对话不受影响。
-  const sp = typeof ctx.get === "function" ? ctx.get("systemPrompt") : undefined;
-  if (sp) {
-    ctx.effect(
-      () => sp.section({
-        name: "dsh-stock-watch.analysis",
-        order: 200,
-        text: "当用户消息以「分析」开头、且意图是分析某家上市公司（而非代码、思路等其他对象）时：依次使用技能 investment-research 完成投资研究分析，再使用技能 frontend-design 生成一个介绍该公司的网站。",
-      }),
-      "dsh-stock-watch: analysis prompt section",
-    );
-
-    // 扇形菜单注入：客户端只发送「每日复盘/行情分析/涨停分析」几个字，
-    // 完整提示词在此条件式注入——仅当用户消息匹配对应关键词时按框架执行。
-    ctx.effect(
-      () => sp.section({
-        name: "dsh-stock-watch.fan-prompts",
-        order: 201,
-        text: "当用户消息为「每日复盘」或以「每日复盘」开头时，执行以下每日复盘任务：\n"
-          + FAN_PROMPTS.每日复盘
-          + "\n当用户消息为「行情分析」或以「行情分析」开头时，执行以下行情分析任务：\n"
-          + FAN_PROMPTS.行情分析
-          + "\n当用户消息为「涨停分析」或以「涨停分析」开头时，执行以下涨停分析任务：\n"
-          + FAN_PROMPTS.涨停分析,
-      }),
-      "dsh-stock-watch: fan prompt section",
-    );
-  }
+  // 提示词不再挂到全局系统提示上：三段文本由 stock-analyst 预设内的 preset.js 注入，
+  // 只有本插件新建的会话（带 agentPreset）会带上它们，其它会话完全不受影响。
+  // 这里只提供「预设未生效」时的兜底全文，供客户端把框架放进消息（功能不丢，消息变长）。
+  register("/dsh-stock-watch/preset", async (req, res) => {
+    const text = (queryOf(req).get("text") ?? "").trim();
+    sendJson(res, 200, { presetId: ANALYSIS_PRESET_ID, fallback: text ? promptForMessage(text) : "" });
+  });
 }
 
 export { apply, inject, name, ensureUserSkills };

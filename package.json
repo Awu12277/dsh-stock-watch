@@ -7,12 +7,18 @@
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./preset": "./preset.js",
+    "./prompts": "./prompts.js",
     "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "client.js",
+    "preset.js",
+    "prompts.js",
     "cordis.patch.yml",
+    "presets",
+    "scripts",
     "README.md",
     "screenshots",
     "data",
@@ -21,7 +27,10 @@
   ],
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": [
+        "./cordis.patch.yml",
+        "./presets/stock-analyst.patch.yml"
+      ]
     },
     "client": {
       "platform": "web",

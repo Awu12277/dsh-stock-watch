@@ -53,8 +53,9 @@ dsh plugin --profile web add dsh-stock-watch
 - **分时视图**：全天分钟价格线（红涨绿跌）+ 黄色均价线（VWAP）+ 昨收虚线基准，时间轴按 **A 股交易时段（北京时间 09:30–11:30 / 13:00–15:00）** 标注，午间休市留白
 - **K 线视图**：日 K / 周 K / 月 K 前复权蜡烛图 + 成交量柱 + **MA 均线（MA5 白 / MA10 黄 / MA20 紫 / MA60 绿，A 股配色，右上角可自定义隐藏/显示，配置存 localStorage）**，支持 **`+ / − / 重置` 按钮缩放 K 线**（位于 MA 均线配置左侧），基于 [TradingView Lightweight Charts](https://tradingview.github.io/lightweight-charts/docs)（CDN 懒加载，失败自动降级为自绘 SVG）
 - **目标价可编辑**：详情页点击「买入目标 / 卖出目标」进入输入框（数字 + 两位小数、留空清除、回车确认 / Esc 取消），即时重算触发标记并持久化
-- **一键投资研究报告**：详情页「📈 投资研究报告」按钮——**新建一个 DSH 对话**并发送简短消息 `分析{公司名}（代码）`，由会话中的 agent 自动使用 `investment-research` 完成投资研究、`frontend-design` 生成介绍网站（技能指令由 host 端条件式系统提示注入，仅对「分析某家上市公司」类请求生效）；按钮带防抖（进行中禁用，防连点重复建会话）
-- **胶囊悬浮扇形菜单**：鼠标移到胶囊（含贴边吸附态）触发 **GSAP 扇形动画**，展开 **📊 行情分析 / 📅 每日复盘 / 🚀 涨停分析** 三个选项（方向按胶囊位置自动选择象限、不越出屏幕；鼠标在扇形区域内不收起，移出才收回）。点击选项同样**新开一个 DSH 对话**并发送简短关键词（如 `每日复盘`），完整提示词（A股短线复盘框架 / 行情分析 4 项 / 涨停分析 4 项）由 host 端条件式系统提示**注入**、不暴露在消息里；「每日复盘」仅在 **15:00–次日 9:00** 可点击，交易时段置灰并提示"还未收盘"；拖动/吸附后扇形自动归位重开
+- **一键投资研究报告**：详情页「📈 投资研究报告」按钮——**新建一个 DSH 对话**并发送简短消息 `分析{公司名}（代码）`，由会话中的 agent 自动使用 `investment-research` 完成投资研究、`frontend-design` 生成介绍网站（技能路由由本插件自带的 `stock-analyst` agent 预设注入，只在该新会话里生效，不影响其它会话）；按钮带防抖（进行中禁用，防连点重复建会话）
+- **胶囊悬浮扇形菜单**：鼠标移到胶囊（含贴边吸附态）触发 **GSAP 扇形动画**，展开 **📊 行情分析 / 📅 每日复盘 / 🚀 涨停分析** 三个选项（方向按胶囊位置自动选择象限、不越出屏幕；鼠标在扇形区域内不收起，移出才收回）。点击选项同样**新开一个 DSH 对话**并发送简短关键词（如 `每日复盘`），完整提示词（A股短线复盘框架 / 行情分析 4 项 / 涨停分析 4 项）由 `stock-analyst` 预设**注入到该新会话**、不暴露在消息里，也不改写其它会话的系统提示；「每日复盘」仅在 **15:00–次日 9:00** 可点击，交易时段置灰并提示"还未收盘"；拖动/吸附后扇形自动归位重开
+- **`stock-analyst` agent 预设（提示词隔离）**：三段提示词（分析路由 + 复盘 / 行情 / 涨停框架）只注入到**本插件新建的会话**——新建时带 `agentPreset: stock-analyst`，其它会话的系统提示完全不含这些文本。预设组合整份随包提供（`presets/stock-analyst.patch.yml`：以 DSH 自带 `standard` 预设为底本 + 本插件的提示词行；DSH 升级后 `node scripts/make-preset.mjs` 一键重新同步）。也可在 DSH 设置的「新建会话默认预设」里选它，手动开的会话同样生效；若运行环境不支持预设，插件会退化为把框架全文直接放进消息（功能不丢，只是消息变长）
 - **安装时自动注入技能**：插件首次启动时把自带的 `investment-research`、`frontend-design` 两个技能复制到用户技能目录 `~/.agents/skills/`（已存在则跳过、不覆盖用户版本；`DSH_STOCK_WATCH_NO_SKILLS=1` 可禁用，`DSH_STOCK_WATCH_SKILLS_DIR` 可改目标目录）
 - **暗色 / 浅色主题**：CSS 变量两套配色，默认暗色，☀️/🌙 一键切换（图表配色联动）
 
@@ -90,18 +91,21 @@ dsh plugin --profile web add dsh-stock-watch
 
 ```
 dsh-stock-watch/
-├── index.js           # node 端 cordis 插件（webServer 路由 + 技能注入 + 系统提示指令）
+├── index.js           # node 端 cordis 插件（webServer 路由 + 技能注入）
 ├── client.js          # 浏览器端客户端模块（__ModuleLoader__ + shell.overlay 槽位）
-├── cordis.patch.yml   # 组合补丁：插入 host 插件行（dsh.bundle.patch）
-├── package.json       # dsh.bundle + dsh.client 声明
+├── preset.js          # 预设内子插件：只在 stock-analyst 会话里注册提示词段落
+├── prompts.js         # 提示词文本（host 侧唯一来源，含预设未生效时的兜底全文）
+├── presets/           # agent 预设声明：stock-analyst.patch.yml（由 scripts/make-preset.mjs 生成）
+├── cordis.patch.yml   # 组合补丁：插入 host 插件行
+├── package.json       # dsh.bundle.patch（[插件行, 预设声明]）+ dsh.client 声明
 ├── data/              # 股票池：全 A 股 a_stocks.json（5549 只）+ 港股 hk_stocks.json（2791 只）+ ETF etf_stocks.json（1650 只）
 ├── skills/            # 随包技能（investment-research / frontend-design，启动时注入用户技能目录）
-├── scripts/           # 本地测试脚本（smoke / probe / skills 注入验证）
+├── scripts/           # make-preset.mjs（预设同步）+ 本地测试脚本（smoke / probe / skills 注入验证）
 ├── screenshots/       # 运行截图
 └── README.md
 ```
 
-`dsh plugin add` 即 profile 目录内的 `pnpm add`：安装后按 package.json 的 `dsh.bundle.patch` 自动并入 profile 层栈，`dsh.client` 声明自动挂载浏览器端模块。
+`dsh plugin add` 即 profile 目录内的 `pnpm add`：安装后按 package.json 的 `dsh.bundle.patch`（数组：插件行 + 预设声明）自动并入 profile 层栈，`dsh.client` 声明自动挂载浏览器端模块。
 
 ## 交互说明
 
