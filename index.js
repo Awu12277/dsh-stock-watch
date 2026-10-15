@@ -15,7 +15,7 @@ import { readFile } from "node:fs/promises";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FAN_PROMPTS } from "./prompts.js";
+import { promptForMessage } from "./prompts.js";
 
 const name = "dsh-stock-watch";
 /** Required services: webServer（HTTP 路由）。 */
@@ -68,7 +68,10 @@ function ensureUserSkills() {
 
 let stocksCache = null;
 
-// 提示词文本见 prompts.js（host 侧唯一来源）。
+/** 本插件自带的 agent 预设 id（声明见 presets/stock-analyst.patch.yml）。 */
+const ANALYSIS_PRESET_ID = "stock-analyst";
+
+// 提示词文本已迁至 prompts.js：由 stock-analyst 预设注入到本插件新建的会话，不再改全局系统提示。
 const MINUTE_API = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={code}&r=0.1";
 const KLINE_API = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{count},qfq";
 
@@ -596,36 +599,13 @@ function apply(ctx) {
     });
   });
 
-  // 一键分析配套：客户端只发送简短消息「分析{公司名}（代码）」，这里注入一条条件式系统指令，
-  // 保证任何会话中出现「分析某家公司」类请求时，依次使用 investment-research / frontend-design 两个技能。
-  // 条件式措辞：仅对分析上市公司的请求生效，其它对话不受影响。
-  const sp = typeof ctx.get === "function" ? ctx.get("systemPrompt") : undefined;
-  if (sp) {
-    ctx.effect(
-      () => sp.section({
-        name: "dsh-stock-watch.analysis",
-        order: 200,
-        text: "当用户消息以「分析」开头、且意图是分析某家上市公司（而非代码、思路等其他对象）时：依次使用技能 investment-research 完成投资研究分析，再使用技能 frontend-design 生成一个介绍该公司的网站。",
-      }),
-      "dsh-stock-watch: analysis prompt section",
-    );
-
-    // 扇形菜单注入：客户端只发送「每日复盘/行情分析/涨停分析」几个字，
-    // 完整提示词在此条件式注入——仅当用户消息匹配对应关键词时按框架执行。
-    ctx.effect(
-      () => sp.section({
-        name: "dsh-stock-watch.fan-prompts",
-        order: 201,
-        text: "当用户消息为「每日复盘」或以「每日复盘」开头时，执行以下每日复盘任务：\n"
-          + FAN_PROMPTS.每日复盘
-          + "\n当用户消息为「行情分析」或以「行情分析」开头时，执行以下行情分析任务：\n"
-          + FAN_PROMPTS.行情分析
-          + "\n当用户消息为「涨停分析」或以「涨停分析」开头时，执行以下涨停分析任务：\n"
-          + FAN_PROMPTS.涨停分析,
-      }),
-      "dsh-stock-watch: fan prompt section",
-    );
-  }
+  // 提示词不再挂到全局系统提示上：三段文本由 stock-analyst 预设内的 preset.js 注入，
+  // 只有本插件新建的会话（带 agentPreset）会带上它们，其它会话完全不受影响。
+  // 这里只提供「预设未生效」时的兜底全文，供客户端把框架放进消息（功能不丢，消息变长）。
+  register("/dsh-stock-watch/preset", async (req, res) => {
+    const text = (queryOf(req).get("text") ?? "").trim();
+    sendJson(res, 200, { presetId: ANALYSIS_PRESET_ID, fallback: text ? promptForMessage(text) : "" });
+  });
 }
 
 export { apply, inject, name, ensureUserSkills };
